@@ -68,7 +68,7 @@ async function sendEmail({ from, to, subject, html, text }) {
 
 function getSenderEmail(assignedTo, users) {
   const u = users.find(x => x.name === assignedTo || x.name.split(" ")[0] === assignedTo);
-  return u?.sender_email || "sales@ingredientz.co";
+  return u?.sender_email || "marketing@ingredientz.shop";
 }
 
 function buildEmailHtml(title, color, lines, footer) {
@@ -310,7 +310,7 @@ function CustomerForm({onSave,onClose,initial=null}) {
 
 // ── USER FORM ─────────────────────────────────────────────────────────────────
 function UserForm({onSave,onClose,initial=null}) {
-  const [form,setForm]=useState(initial||{name:"",email:"",role:"Sales",sender_email:"sales@ingredientz.co",active:true});
+  const [form,setForm]=useState(initial||{name:"",email:"",role:"Sales",sender_email:"marketing@ingredientz.shop",active:true});
   const [done,setDone]=useState(false);
   function set(k,v){setForm(f=>({...f,[k]:v}));}
   async function save(){if(!form.name.trim()||!form.email.trim()){alert("Name and email required.");return;}await onSave(form,initial?.id);setDone(true);setTimeout(()=>setDone(false),1200);if(initial)onClose();}
@@ -319,7 +319,7 @@ function UserForm({onSave,onClose,initial=null}) {
       <FF label="Full Name *" k="name" value={form.name} onChange={set} placeholder="e.g. Param Sharma"/>
       <FF label="Email *" k="email" value={form.email} onChange={set} type="email" placeholder="param@ingredientz.com"/>
       <FF label="Role" k="role" value={form.role} onChange={set} options={["Admin","Sales","Manager","Support"]}/>
-      <FF label="Sender Email" k="sender_email" value={form.sender_email} onChange={set} options={[{v:"sales@ingredientz.co",l:"sales@ingredientz.co"},{v:"sales.americas@ingredientz.co",l:"sales.americas@ingredientz.co"},{v:"sales.americas1@ingredientz.co",l:"sales.americas1@ingredientz.co"}]}/>
+      <FF label="Sender Email" k="sender_email" value={form.sender_email} onChange={set} options={[{v:"marketing@ingredientz.shop",l:"marketing@ingredientz.shop"},{v:"marketing@ingredientz.shop",l:"marketing@ingredientz.shop"},{v:"marketing@ingredientz.shop",l:"marketing@ingredientz.shop"}]}/>
       <FF label="Active" k="active" value={form.active?"Yes":"No"} onChange={(k,v)=>set("active",v==="Yes")} options={["Yes","No"]}/>
     </div>
     <div style={{display:"flex",gap:10}}><Btn label={done?"✓ Saved!":initial?"Update":"Add User"} onClick={save}/><Btn label="Cancel" onClick={onClose} variant="ghost"/></div>
@@ -564,7 +564,7 @@ function EmailThreadTab({enq,threads,onLogEmail}) {
   async function handleLog(){
     if(!logForm.subject.trim()||!logForm.body.trim()){alert("Subject and body required.");return;}
     setSaving(true);
-    await onLogEmail({enquiry_id:enq.id,customer_name:enq.customer_name,direction:logForm.direction,subject:logForm.subject,body:logForm.body,from_email:logForm.direction==="received"?(logForm.from_email||enq.contact_person||enq.customer_name):"sales@ingredientz.co",to_email:logForm.direction==="received"?"sales@ingredientz.co":(enq.customer_email||enq.contact_person),sent_at:new Date().toISOString()});
+    await onLogEmail({enquiry_id:enq.id,customer_name:enq.customer_name,direction:logForm.direction,subject:logForm.subject,body:logForm.body,from_email:logForm.direction==="received"?(logForm.from_email||enq.contact_person||enq.customer_name):"marketing@ingredientz.shop",to_email:logForm.direction==="received"?"marketing@ingredientz.shop":(enq.customer_email||enq.contact_person),sent_at:new Date().toISOString()});
     setLogForm({direction:"received",subject:"",body:"",from_email:""});
     setShowLog(false);setSaving(false);
   }
@@ -620,8 +620,8 @@ function EmailThreadTab({enq,threads,onLogEmail}) {
                   {isSent?"I":"C"}
                 </div>
                 <div>
-                  <div style={{fontSize:12,fontWeight:700,color:C.ink}}>{isSent?(t.from_email||"sales@ingredientz.co"):(t.from_email||enq.customer_name)}</div>
-                  <div style={{fontSize:10,color:C.muted}}>to {isSent?(t.to_email||enq.contact_person||enq.customer_name):"sales@ingredientz.co"}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:C.ink}}>{isSent?(t.from_email||"marketing@ingredientz.shop"):(t.from_email||enq.customer_name)}</div>
+                  <div style={{fontSize:10,color:C.muted}}>to {isSent?(t.to_email||enq.contact_person||enq.customer_name):"marketing@ingredientz.shop"}</div>
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
