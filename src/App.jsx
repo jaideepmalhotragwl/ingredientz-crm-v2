@@ -430,10 +430,15 @@ function TaskBoard({tasks,users,onAdd,onUpdate,onDelete}) {
 function QuotationTab({enq,quotations,onSave,onSendEmail,users}) {
   const enqQuots=quotations.filter(q=>q.enquiry_id===enq.id).sort((a,b)=>b.version-a.version);
   const latest=enqQuots[0];
+  const recalcItems = (items) => (items||[]).map(it => {
+    const q = parseFloat(it.qty)||0;
+    const p = parseFloat(it.unitPrice)||0;
+    return {...it, totalPrice: q&&p ? (q*p).toFixed(2) : (it.totalPrice||"")};
+  });
   const [form,setForm]=useState(()=>latest?{
     validity_days:latest.validity_days||30,paymentTerms:latest.payment_terms||"",
     incoterms:latest.incoterms||"CIF",notes:latest.notes||"",
-    items:Array.isArray(latest.items)?latest.items:[],
+    items:recalcItems(Array.isArray(latest.items)?latest.items:[]),
   }:{validity_days:30,paymentTerms:"",incoterms:"CIF",notes:"",
     items:(Array.isArray(enq.products)?enq.products:[]).map(p=>({name:p.name,qty:p.qty||"",unit:p.unit||"kg",unitPrice:"",totalPrice:""}))});
   const [saving,setSaving]=useState(false);
