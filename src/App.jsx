@@ -56,14 +56,14 @@ async function dbDelete(table, id) {
 // ── RESEND EMAIL ──────────────────────────────────────────────────────────────
 async function sendEmail({ from, to, subject, html, text }) {
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
       method: "POST",
-      headers: { "Authorization": `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+      headers: { "Authorization": `Bearer ${SUPA_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from, to, subject, html, text })
     });
     const d = await res.json();
     return d;
-  } catch(e) { console.error("Resend error:", e); return null; }
+  } catch(e) { console.error("Email error:", e); return null; }
 }
 
 function getSenderEmail(assignedTo, users) {
