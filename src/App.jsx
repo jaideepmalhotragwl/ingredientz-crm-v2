@@ -440,7 +440,7 @@ function QuotationTab({enq,quotations,onSave,onSendEmail,users}) {
     incoterms:latest.incoterms||"CIF",notes:latest.notes||"",
     items:recalcItems(Array.isArray(latest.items)?latest.items:[]),
   }:{validity_days:30,paymentTerms:"",incoterms:"CIF",notes:"",
-    items:(Array.isArray(enq.products)?enq.products:[]).map(p=>({name:p.name,qty:p.qty||"",unit:p.unit||"kg",unitPrice:"",totalPrice:""}))});
+    items:(Array.isArray(enq.products)?enq.products:[]).map(p=>({name:p.name||"",qty:String(p.qty||""),unit:p.unit||"kg",unitPrice:"",totalPrice:""}))});
   const [saving,setSaving]=useState(false);
   const [sending,setSending]=useState(false);
   const [sent,setSent]=useState(false);
@@ -512,7 +512,7 @@ function QuotationTab({enq,quotations,onSave,onSendEmail,users}) {
         </select>
         <input value={it.unitPrice} onChange={e=>setItem(i,"unitPrice",e.target.value)} placeholder="0.00" style={inp}/>
         <div style={{background:C.blueLt,border:`1px solid #BFD6F6`,borderRadius:7,padding:"7px 10px",fontSize:12,color:C.blue,fontWeight:700}}>
-          {it.totalPrice?Number(it.totalPrice).toLocaleString():"—"}
+          {it.totalPrice&&parseFloat(it.totalPrice)>0?Number(it.totalPrice).toLocaleString():"—"}
         </div>
         <button onClick={()=>removeItem(i)} disabled={form.items.length===1}
           style={{background:"transparent",border:`1px solid ${C.red}44`,borderRadius:6,width:26,height:30,cursor:form.items.length===1?"not-allowed":"pointer",color:C.red,fontSize:14,opacity:form.items.length===1?0.3:1,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
