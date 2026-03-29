@@ -1047,7 +1047,7 @@ export default function App() {
     const custEmail=customers.find(c=>c.id===enq.customer_id)?.email||"";
     const itemLines=form.items.map(it=>`${it.name} — ${it.qty} ${it.unit} @ ${enq.currency||"USD"} ${it.unitPrice} = ${enq.currency||"USD"} ${it.totalPrice}`).join("<br/>");
     const subject=`Quotation — ${(enq.products||[])[0]?.name||"Products"} — ${enq.customer_name}`;
-    const itemsText=form.items.map(function(it){return it.name+" - "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice;}).join(", ");
+    const itemsText=form.items.map(function(it){return it.name+" - "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice;}).join("\n");
     const bodyText="Dear "+(enq.contact_person||enq.customer_name)+",\n\nThank you for your enquiry. Please find our quotation below.\n\nProducts:\n"+itemsText+"\n\nGrand Total: "+(enq.currency||"USD")+" "+grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})+"\nValidity: "+form.validity_days+" days\nPayment Terms: "+(form.paymentTerms||"To be discussed")+"\nIncoterms: "+form.incoterms+(form.notes?"\n\nNotes: "+form.notes:"")+"\n\nKind regards,\nIngredientz Sales Team\n"+sender;
     const html=buildEmailHtml(subject,"#1877F2",[`Dear <b>${enq.contact_person||enq.customer_name}</b>,`,`Thank you for your enquiry. Please find our quotation below.`,`<b>Products:</b><br/>${itemLines}`,`<b>Grand Total: ${enq.currency||"USD"} ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</b>`,`<b>Validity:</b> ${form.validity_days} days`,`<b>Payment Terms:</b> ${form.paymentTerms||"To be discussed"}`,`<b>Incoterms:</b> ${form.incoterms}`,form.notes?`<b>Notes:</b> ${form.notes}`:""].filter(Boolean),`Ingredientz Inc · ${sender}`);
 
