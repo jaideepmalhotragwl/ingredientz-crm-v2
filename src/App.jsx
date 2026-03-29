@@ -447,11 +447,9 @@ function QuotationTab({enq,quotations,onSave,onSendEmail,users}) {
       const items=f.items.map((it,idx)=>{
         if(idx!==i)return it;
         const u={...it,[field]:val};
-        if(field==="qty"||field==="unitPrice"){
-          const q=parseFloat(field==="qty"?val:u.qty)||0;
-          const p=parseFloat(field==="unitPrice"?val:u.unitPrice)||0;
-          u.totalPrice=q&&p?(q*p).toFixed(2):"";
-        }
+        const q=parseFloat(field==="qty"?val:u.qty)||0;
+        const p=parseFloat(field==="unitPrice"?val:u.unitPrice)||0;
+        u.totalPrice=q&&p?(q*p).toFixed(2):"";
         return u;
       });
       return {...f,items};
@@ -625,7 +623,7 @@ function EmailThreadTab({enq,threads,onLogEmail}) {
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
-                <div style={{fontSize:10,color:C.muted}}>{fmtDate(t.sent_at)}</div>
+                <div style={{fontSize:10,color:C.muted}}>{fmtDate(t.sent_at)} {t.sent_at?new Date(t.sent_at).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}):""}</div>
                 {t.direction==="auto-sent"&&<span style={{background:C.blueLt,color:C.blue,border:`1px solid #BFD6F6`,borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:700}}>AUTO-SENT</span>}
                 {t.direction==="received"&&<span style={{background:"#E4E6EB",color:C.muted,border:`1px solid ${C.border}`,borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:700}}>RECEIVED</span>}
               </div>
@@ -1045,14 +1043,14 @@ export default function App() {
   async function sendQuotationEmail(enq,form,grandTotal,users){
     const sender=getSenderEmail(enq.assigned_to,users);
     const custEmail=customers.find(c=>c.id===enq.customer_id)?.email||"";
-    const itemLines=form.items.map(it=>`${it.name} — ${it.qty} ${it.unit} @ ${enq.currency||"USD"} ${it.unitPrice} = ${enq.currency||"USD"} ${it.totalPrice}`).join("<br/>");
+    const itemLines=form.items.map(it=>{const total=it.totalPrice||(parseFloat(it.qty||0)*parseFloat(it.unitPrice||0)).toFixed(2);return "<b>"+it.name+"</b> — "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice+" = "+(enq.currency||"USD")+" "+total;}).join("<br/>");
     const subject=`Quotation — ${(enq.products||[])[0]?.name||"Products"} — ${enq.customer_name} [ENQ-${enq.id}]`;
-    const itemsText=form.items.map(function(it){return it.name+" - "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice;}).join("\n");
+    const itemsText=form.items.map(function(it){const total=it.totalPrice||(parseFloat(it.qty||0)*parseFloat(it.unitPrice||0)).toFixed(2);return it.name+" - "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice+" = "+(enq.currency||"USD")+" "+total;}).join("\n");
     const bodyText="Dear "+(enq.contact_person||enq.customer_name)+",\n\nThank you for your enquiry. Please find our quotation below.\n\nProducts:\n"+itemsText+"\n\nGrand Total: "+(enq.currency||"USD")+" "+grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})+"\nValidity: "+form.validity_days+" days\nPayment Terms: "+(form.paymentTerms||"To be discussed")+"\nIncoterms: "+form.incoterms+(form.notes?"\n\nNotes: "+form.notes:"")+"\n\nKind regards,\nIngredientz Sales Team\n"+sender;
     const html=buildEmailHtml(subject,"#1877F2",[`Dear <b>${enq.contact_person||enq.customer_name}</b>,`,`Thank you for your enquiry. Please find our quotation below.`,`<b>Products:</b><br/>${itemLines}`,`<b>Grand Total: ${enq.currency||"USD"} ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</b>`,`<b>Validity:</b> ${form.validity_days} days`,`<b>Payment Terms:</b> ${form.paymentTerms||"To be discussed"}`,`<b>Incoterms:</b> ${form.incoterms}`,form.notes?`<b>Notes:</b> ${form.notes}`:""].filter(Boolean),`Ingredientz Inc · ${sender}`);
 
     if(custEmail){
-      const res=await sendEmail({from:`Ingredientz Sales <${sender}>`,to:custEmail,subject,html,text:bodyText,reply_to:`replies@mail.ingredientz.co`});
+      const res=await sendEmail({from:`Ingredientz Sales <${sender}>`,to:custEmail,subject,html,text:bodyText,reply_to:`sales@ingredientz.co`});
       showToast(res?.id?`✓ Quotation sent to ${custEmail}`:`✓ Quotation logged (email not sent — check customer email)`);
     } else {
       showToast("⚠ No customer email — quotation logged only");
