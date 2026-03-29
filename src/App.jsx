@@ -54,12 +54,12 @@ async function dbDelete(table, id) {
 }
 
 // ── RESEND EMAIL ──────────────────────────────────────────────────────────────
-async function sendEmail({ from, to, subject, html, text }) {
+async function sendEmail({ from, to, subject, html, text, reply_to }) {
   try {
     const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${SUPA_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, subject, html, text })
+      body: JSON.stringify({ from, to, subject, html, text, reply_to })
     });
     const d = await res.json();
     return d;
@@ -1046,13 +1046,13 @@ export default function App() {
     const sender=getSenderEmail(enq.assigned_to,users);
     const custEmail=customers.find(c=>c.id===enq.customer_id)?.email||"";
     const itemLines=form.items.map(it=>`${it.name} — ${it.qty} ${it.unit} @ ${enq.currency||"USD"} ${it.unitPrice} = ${enq.currency||"USD"} ${it.totalPrice}`).join("<br/>");
-    const subject=`Quotation — ${(enq.products||[])[0]?.name||"Products"} — ${enq.customer_name}`;
+    const subject=`Quotation — ${(enq.products||[])[0]?.name||"Products"} — ${enq.customer_name} [ENQ-${enq.id}]`;
     const itemsText=form.items.map(function(it){return it.name+" - "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice;}).join("\n");
     const bodyText="Dear "+(enq.contact_person||enq.customer_name)+",\n\nThank you for your enquiry. Please find our quotation below.\n\nProducts:\n"+itemsText+"\n\nGrand Total: "+(enq.currency||"USD")+" "+grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})+"\nValidity: "+form.validity_days+" days\nPayment Terms: "+(form.paymentTerms||"To be discussed")+"\nIncoterms: "+form.incoterms+(form.notes?"\n\nNotes: "+form.notes:"")+"\n\nKind regards,\nIngredientz Sales Team\n"+sender;
     const html=buildEmailHtml(subject,"#1877F2",[`Dear <b>${enq.contact_person||enq.customer_name}</b>,`,`Thank you for your enquiry. Please find our quotation below.`,`<b>Products:</b><br/>${itemLines}`,`<b>Grand Total: ${enq.currency||"USD"} ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</b>`,`<b>Validity:</b> ${form.validity_days} days`,`<b>Payment Terms:</b> ${form.paymentTerms||"To be discussed"}`,`<b>Incoterms:</b> ${form.incoterms}`,form.notes?`<b>Notes:</b> ${form.notes}`:""].filter(Boolean),`Ingredientz Inc · ${sender}`);
 
     if(custEmail){
-      const res=await sendEmail({from:`Ingredientz Sales <${sender}>`,to:custEmail,subject,html,text:bodyText});
+      const res=await sendEmail({from:`Ingredientz Sales <${sender}>`,to:custEmail,subject,html,text:bodyText,reply_to:`replies@mail.ingredientz.co`});
       showToast(res?.id?`✓ Quotation sent to ${custEmail}`:`✓ Quotation logged (email not sent — check customer email)`);
     } else {
       showToast("⚠ No customer email — quotation logged only");
