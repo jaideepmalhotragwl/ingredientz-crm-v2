@@ -319,7 +319,7 @@ function UserForm({onSave,onClose,initial=null}) {
       <FF label="Full Name *" k="name" value={form.name} onChange={set} placeholder="e.g. Param Sharma"/>
       <FF label="Email *" k="email" value={form.email} onChange={set} type="email" placeholder="param@ingredientz.com"/>
       <FF label="Role" k="role" value={form.role} onChange={set} options={["Admin","Sales","Manager","Support"]}/>
-      <FF label="Sender Email" k="sender_email" value={form.sender_email} onChange={set} options={[{v:"sales@mail.ingredientz.co",l:"sales@mail.ingredientz.co"},{v:"sales@mail.ingredientz.co",l:"sales@mail.ingredientz.co"},{v:"sales@mail.ingredientz.co",l:"sales@mail.ingredientz.co"}]}/>
+      <FF label="Sender Email" k="sender_email" value={form.sender_email} onChange={set} options={[{v:"sales@mail.ingredientz.co",l:"sales@mail.ingredientz.co"}]}/>
       <FF label="Active" k="active" value={form.active?"Yes":"No"} onChange={(k,v)=>set("active",v==="Yes")} options={["Yes","No"]}/>
     </div>
     <div style={{display:"flex",gap:10}}><Btn label={done?"✓ Saved!":initial?"Update":"Add User"} onClick={save}/><Btn label="Cancel" onClick={onClose} variant="ghost"/></div>
@@ -958,6 +958,325 @@ function UsersTab({users,onAdd,onUpdate,onDelete}) {
   </div>;
 }
 
+// ── CATEGORIES TAB ───────────────────────────────────────────────────────────
+function CategoriesTab() {
+  const [cats,setCats]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({name:"",slug:"",description:"",sort_order:0,active:true});
+  const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(false);
+
+  useEffect(()=>{loadCats();},[]);
+
+  async function loadCats(){
+    setLoading(true);
+    const {data}=await supabase.from("product_categories").select("*").order("sort_order");
+    setCats(data||[]);setLoading(false);
+  }
+
+  function setF(k,v){setForm(f=>({...f,[k]:v}));}
+
+  function genSlug(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
+
+  function openAdd(){setForm({name:"",slug:"",description:"",sort_order:(cats.length+1)*10,active:true});setModal("add");}
+  function openEdit(c){setForm({name:c.name,slug:c.slug,description:c.description||"",sort_order:c.sort_order||0,active:c.active});setModal({type:"edit",id:c.id});}
+
+  async function save(){
+    if(!form.name.trim()){alert("Name required.");return;}
+    const slug=form.slug||genSlug(form.name);
+    setSaving(true);
+    if(modal==="add"){
+      await supabase.from("product_categories").insert({...form,slug});
+    } else {
+      await supabase.from("product_categories").update({...form,slug}).eq("id",modal.id);
+    }
+    setSaving(false);setDone(true);
+    setTimeout(()=>{setDone(false);setModal(null);loadCats();},900);
+  }
+
+  async function toggle(c){
+    await supabase.from("product_categories").update({active:!c.active}).eq("id",c.id);
+    loadCats();
+  }
+
+  async function del(id){
+    if(!window.confirm("Delete this category?"))return;
+    await supabase.from("product_categories").delete().eq("id",id);
+    loadCats();
+  }
+
+  const inp={background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 11px",color:C.ink,fontFamily:"Arial,sans-serif",fontSize:13,outline:"none",width:"100%"};
+
+  return <div>
+    {modal&&<Modal title={modal==="add"?"Add Category":"Edit Category"} onClose={()=>setModal(null)} width={520}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Category Name *</label>
+          <input value={form.name} onChange={e=>{setF("name",e.target.value);if(!form.slug||modal==="add")setF("slug",genSlug(e.target.value));}} placeholder="e.g. Botanical Extracts" style={inp}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Slug (URL)</label>
+          <input value={form.slug} onChange={e=>setF("slug",e.target.value)} placeholder="botanical-extracts" style={inp}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Description</label>
+          <textarea value={form.description} onChange={e=>setF("description",e.target.value)} rows={3} placeholder="Category description for SEO…" style={{...inp,resize:"vertical"}}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Sort Order</label>
+            <input type="number" value={form.sort_order} onChange={e=>setF("sort_order",parseInt(e.target.value))} style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Status</label>
+            <select value={form.active?"active":"inactive"} onChange={e=>setF("active",e.target.value==="active")} style={inp}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10,paddingTop:6}}>
+          <Btn label={saving?"Saving…":done?"✓ Saved!":"Save Category"} onClick={save} disabled={saving}/>
+          <Btn label="Cancel" onClick={()=>setModal(null)} variant="ghost"/>
+        </div>
+      </div>
+    </Modal>}
+    <Card style={{overflow:"hidden"}}>
+      <div style={{padding:"14px 18px",display:"flex",gap:10,alignItems:"center",borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:18,fontWeight:700,color:C.ink}}>Product Categories <span style={{fontSize:12,color:C.blue,fontWeight:400}}>{cats.length} categories</span></div>
+        <Btn label="+ Add Category" onClick={openAdd} size="sm"/>
+      </div>
+      {loading?<div style={{padding:30,textAlign:"center",color:C.muted}}>Loading…</div>:
+      <div>
+        <div style={{display:"grid",gridTemplateColumns:"40px 1fr 200px 80px 80px 100px",gap:0}}>
+          {["#","Category Name","Slug","Products","Status",""].map((h,i)=><div key={i} style={{padding:"9px 14px",fontSize:9,fontWeight:700,letterSpacing:1,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,background:C.bg}}>{h}</div>)}
+        </div>
+        {cats.map((c,i)=><div key={c.id} style={{display:"grid",gridTemplateColumns:"40px 1fr 200px 80px 80px 100px",background:i%2===0?C.bg:"transparent",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{padding:"11px 14px",color:C.muted,fontSize:11}}>{c.sort_order}</div>
+          <div style={{padding:"11px 14px"}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{c.name}</div>
+            {c.description&&<div style={{fontSize:11,color:C.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:280}}>{c.description}</div>}
+          </div>
+          <div style={{padding:"11px 14px",fontSize:11,color:C.muted,fontFamily:"monospace"}}>{c.slug}</div>
+          <div style={{padding:"11px 14px",fontSize:11,color:C.muted}}>—</div>
+          <div style={{padding:"11px 14px"}}>
+            <span style={{background:c.active?"#E6F4EA":C.bg,color:c.active?C.green:C.muted,border:`1px solid ${c.active?"#C3E6CB":C.border}`,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}} onClick={()=>toggle(c)}>{c.active?"Active":"Inactive"}</span>
+          </div>
+          <div style={{padding:"9px 14px",display:"flex",gap:6,alignItems:"center"}}>
+            <Btn label="Edit" onClick={()=>openEdit(c)} size="sm" variant="ghost"/>
+            <Btn label="✕" onClick={()=>del(c.id)} size="sm" variant="danger"/>
+          </div>
+        </div>)}
+        {cats.length===0&&<div style={{padding:30,textAlign:"center",color:C.muted,fontSize:12}}>No categories yet</div>}
+      </div>}
+    </Card>
+  </div>;
+}
+
+// ── PRODUCTS TAB ──────────────────────────────────────────────────────────────
+function ProductsTab() {
+  const [products,setProducts]=useState([]);
+  const [cats,setCats]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(null);
+  const [search,setSearch]=useState("");
+  const [filterCat,setFilterCat]=useState("");
+  const [filterStatus,setFilterStatus]=useState("");
+  const [form,setForm]=useState({name:"",slug:"",category_id:"",short_description:"",description:"",cas_number:"",hsn_code:"",unit:"kg",min_order_qty:"",specifications:"{}",tags:"",status:"active"});
+  const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(false);
+
+  useEffect(()=>{loadAll();},[]);
+
+  async function loadAll(){
+    setLoading(true);
+    const [{data:p},{data:c}]=await Promise.all([
+      supabase.from("products").select("*,product_categories(name)").order("created_at",{ascending:false}),
+      supabase.from("product_categories").select("*").eq("active",true).order("sort_order")
+    ]);
+    setProducts(p||[]);setCats(c||[]);setLoading(false);
+  }
+
+  function setF(k,v){setForm(f=>({...f,[k]:v}));}
+  function genSlug(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
+
+  function openAdd(){
+    setForm({name:"",slug:"",category_id:"",short_description:"",description:"",cas_number:"",hsn_code:"",unit:"kg",min_order_qty:"",specifications:"{}",tags:"",status:"active"});
+    setModal("add");
+  }
+
+  function openEdit(p){
+    setForm({
+      name:p.name,slug:p.slug,category_id:String(p.category_id||""),
+      short_description:p.short_description||"",description:p.description||"",
+      cas_number:p.cas_number||"",hsn_code:p.hsn_code||"",
+      unit:p.unit||"kg",min_order_qty:p.min_order_qty||"",
+      specifications:JSON.stringify(p.specifications||{}),
+      tags:(p.tags||[]).join(", "),status:p.status||"active"
+    });
+    setModal({type:"edit",id:p.id});
+  }
+
+  async function save(){
+    if(!form.name.trim()){alert("Product name required.");return;}
+    if(!form.category_id){alert("Category required.");return;}
+    setSaving(true);
+    let specs={};
+    try{specs=JSON.parse(form.specifications||"{}");}catch(e){specs={};}
+    const tags=form.tags?form.tags.split(",").map(t=>t.trim()).filter(Boolean):[];
+    const slug=form.slug||genSlug(form.name);
+    const row={
+      name:form.name,slug,category_id:parseInt(form.category_id),
+      short_description:form.short_description,description:form.description,
+      cas_number:form.cas_number,hsn_code:form.hsn_code,
+      unit:form.unit,min_order_qty:form.min_order_qty?parseFloat(form.min_order_qty):null,
+      specifications:specs,tags,status:form.status,created_by:"Jaideep"
+    };
+    if(modal==="add"){
+      await supabase.from("products").insert(row);
+    } else {
+      await supabase.from("products").update(row).eq("id",modal.id);
+    }
+    setSaving(false);setDone(true);
+    setTimeout(()=>{setDone(false);setModal(null);loadAll();},900);
+  }
+
+  async function del(id){
+    if(!window.confirm("Delete this product?"))return;
+    await supabase.from("products").delete().eq("id",id);
+    loadAll();
+  }
+
+  async function toggleStatus(p){
+    const next=p.status==="active"?"inactive":"active";
+    await supabase.from("products").update({status:next}).eq("id",p.id);
+    loadAll();
+  }
+
+  const filtered=products
+    .filter(p=>(!filterCat||String(p.category_id)===filterCat)&&(!filterStatus||p.status===filterStatus))
+    .filter(p=>!search||p.name.toLowerCase().includes(search.toLowerCase())||(p.cas_number||"").toLowerCase().includes(search.toLowerCase()));
+
+  const STATUS_COLORS={active:C.green,inactive:C.muted,pending:C.amber};
+  const inp={background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 11px",color:C.ink,fontFamily:"Arial,sans-serif",fontSize:13,outline:"none",width:"100%"};
+
+  return <div>
+    {modal&&<Modal title={modal==="add"?"Add Product":"Edit Product"} onClose={()=>setModal(null)} width={780}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Product Name *</label>
+            <input value={form.name} onChange={e=>{setF("name",e.target.value);if(!form.slug||modal==="add")setF("slug",genSlug(e.target.value));}} placeholder="e.g. Ashwagandha Extract KSM-66" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Category *</label>
+            <select value={form.category_id} onChange={e=>setF("category_id",e.target.value)} style={{...inp,color:form.category_id?C.ink:C.muted}}>
+              <option value="">Select category…</option>
+              {cats.map(c=><option key={c.id} value={String(c.id)}>{c.name}</option>)}
+            </select>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>URL Slug</label>
+            <input value={form.slug} onChange={e=>setF("slug",e.target.value)} placeholder="auto-generated" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Short Description</label>
+            <input value={form.short_description} onChange={e=>setF("short_description",e.target.value)} placeholder="One line summary for catalogue listing…" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Full Description</label>
+            <textarea value={form.description} onChange={e=>setF("description",e.target.value)} rows={3} placeholder="Detailed product description for SEO and customer portal…" style={{...inp,resize:"vertical"}}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>CAS Number</label>
+            <input value={form.cas_number} onChange={e=>setF("cas_number",e.target.value)} placeholder="e.g. 84687-43-4" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>HSN Code</label>
+            <input value={form.hsn_code} onChange={e=>setF("hsn_code",e.target.value)} placeholder="e.g. 13021990" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Unit</label>
+            <select value={form.unit} onChange={e=>setF("unit",e.target.value)} style={inp}>
+              {["kg","MT","Litres","Pieces","Boxes","Bags","Other"].map(u=><option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Min Order Qty</label>
+            <input type="number" value={form.min_order_qty} onChange={e=>setF("min_order_qty",e.target.value)} placeholder="e.g. 25" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Specifications (JSON) <span style={{color:C.muted,fontWeight:400,fontSize:9}}>e.g. {"{"}"standardization":"5% Withanolides"{"}"}</span></label>
+            <textarea value={form.specifications} onChange={e=>setF("specifications",e.target.value)} rows={3} placeholder='{"standardization":"5% Withanolides","form":"Powder"}' style={{...inp,fontFamily:"monospace",fontSize:12,resize:"vertical"}}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Tags <span style={{color:C.muted,fontWeight:400,fontSize:9}}>comma separated</span></label>
+            <input value={form.tags} onChange={e=>setF("tags",e.target.value)} placeholder="e.g. adaptogen, ayurvedic, stress-relief" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Status</label>
+            <select value={form.status} onChange={e=>setF("status",e.target.value)} style={inp}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10,paddingTop:6}}>
+          <Btn label={saving?"Saving…":done?"✓ Saved!":modal==="add"?"Add Product":"Update Product"} onClick={save} disabled={saving}/>
+          <Btn label="Cancel" onClick={()=>setModal(null)} variant="ghost"/>
+        </div>
+      </div>
+    </Modal>}
+    <Card style={{overflow:"hidden"}}>
+      <div style={{padding:"14px 18px",display:"flex",gap:10,alignItems:"center",borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+        <div style={{fontSize:18,fontWeight:700,color:C.ink}}>Product Master <span style={{fontSize:12,color:C.blue,fontWeight:400}}>{filtered.length} products</span></div>
+        <Btn label="+ Add Product" onClick={openAdd} size="sm"/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, CAS…" style={{marginLeft:"auto",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 12px",color:C.ink,fontSize:12,outline:"none",width:180}}/>
+        <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",color:C.ink,fontSize:11}}>
+          <option value="">All Categories</option>
+          {cats.map(c=><option key={c.id} value={String(c.id)}>{c.name}</option>)}
+        </select>
+        <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",color:C.ink,fontSize:11}}>
+          <option value="">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+          <option value="pending">Pending</option>
+        </select>
+      </div>
+      {loading?<div style={{padding:30,textAlign:"center",color:C.muted}}>Loading…</div>:
+      <div style={{overflowX:"auto",maxHeight:520,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead style={{position:"sticky",top:0,background:C.bg,zIndex:2}}>
+            <tr>{["Product Name","Category","CAS Number","Unit","MOQ","Status",""].map(h=><th key={h} style={{padding:"9px 14px",textAlign:"left",color:C.muted,borderBottom:`1px solid ${C.border}`,fontWeight:700,letterSpacing:1,fontSize:9,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {filtered.map((p,i)=><tr key={p.id} style={{background:i%2===0?C.bg:"transparent"}}>
+              <td style={{padding:"10px 14px"}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{p.name}</div>
+                {p.short_description&&<div style={{fontSize:11,color:C.muted,marginTop:1,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.short_description}</div>}
+              </td>
+              <td style={{padding:"10px 14px",color:C.muted,fontSize:11}}>{p.product_categories?.name||"—"}</td>
+              <td style={{padding:"10px 14px",color:C.muted,fontSize:11,fontFamily:"monospace"}}>{p.cas_number||"—"}</td>
+              <td style={{padding:"10px 14px",color:C.muted,fontSize:11}}>{p.unit||"kg"}</td>
+              <td style={{padding:"10px 14px",color:C.muted,fontSize:11}}>{p.min_order_qty?`${p.min_order_qty} ${p.unit}`:"—"}</td>
+              <td style={{padding:"10px 14px"}}>
+                <span onClick={()=>toggleStatus(p)} style={{background:`${STATUS_COLORS[p.status]||C.muted}22`,color:STATUS_COLORS[p.status]||C.muted,border:`1px solid ${STATUS_COLORS[p.status]||C.muted}44`,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700,cursor:"pointer",textTransform:"capitalize"}}>{p.status}</span>
+              </td>
+              <td style={{padding:"10px 14px",display:"flex",gap:6}}>
+                <Btn label="Edit" onClick={()=>openEdit(p)} size="sm" variant="ghost"/>
+                <Btn label="✕" onClick={()=>del(p.id)} size="sm" variant="danger"/>
+              </td>
+            </tr>)}
+          </tbody>
+        </table>
+        {filtered.length===0&&<div style={{padding:36,textAlign:"center",color:C.muted,fontSize:12}}>No products yet — click + Add Product to start building your catalogue</div>}
+      </div>}
+    </Card>
+  </div>;
+}
+
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [loading,setLoading]=useState(true);
@@ -1082,6 +1401,8 @@ export default function App() {
     {id:"enquiries",label:"Enquiries",icon:"📋",badge:0},
     {id:"reminders",label:"Reminders",icon:"🔔",badge:overdueReminderCount},
     {id:"customers",label:"Customers",icon:"🏢",badge:0},
+    {id:"products",label:"Products",icon:"🧪",badge:0},
+    {id:"categories",label:"Categories",icon:"📂",badge:0},
     {id:"users",label:"Team",icon:"👥",badge:0},
   ];
 
@@ -1130,6 +1451,8 @@ export default function App() {
       {activeTab==="enquiries"&&<EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry}/>}
       {activeTab==="reminders"&&<RemindersTab enquiries={enquiries} onSelect={e=>{setSelectedEnq(e);setActiveTab("enquiries");}}/>}
       {activeTab==="customers"&&<CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer}/>}
+      {activeTab==="products"&&<ProductsTab/>}
+      {activeTab==="categories"&&<CategoriesTab/>}
       {activeTab==="users"&&<UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser}/>}
     </div>
     <EnquiryDrawer enq={selectedEnq} onClose={()=>setSelectedEnq(null)} onStageChange={stageChange} onUpdate={updateEnquiry} customers={customers} users={users} quotations={quotations} threads={threads} onSaveQuotation={saveQuotation} onSendQuotationEmail={sendQuotationEmail} onLogEmail={logEmail}/>
