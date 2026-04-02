@@ -1425,8 +1425,7 @@ function RFQForwardPanel({enq,users}) {
     const key=supplier.id;
     setSending(s=>({...s,[key]:true}));
     const sender="sales@mail.ingredientz.co";
-    const productLines=productsForSupplier.map(p=>`• ${p.name}${p.qty?` — ${p.qty} ${p.unit||"kg"}`:""}` ).join("
-");
+    const productLines=productsForSupplier.map(p=>"- "+p.name+(p.qty?" - "+p.qty+" "+(p.unit||"kg"):"")).join("\n");
     const subject=`RFQ — ${productsForSupplier.map(p=>p.name).join(", ")} — Ingredientz [ENQ-${enq.id}]`;
     const bodyText=`Dear ${supplier.contact_name||supplier.company},
 
@@ -1454,7 +1453,7 @@ ${sender}`;
       <div style="background:#fff;padding:20px 24px;border:1px solid #e8e8e8;border-top:none;">
         <p style="color:#444;font-size:14px;">Dear <b>${supplier.contact_name||supplier.company}</b>,</p>
         <p style="color:#444;font-size:14px;">We have a customer enquiry and would like to request your best pricing for:</p>
-        ${productsForSupplier.map(p=>`<div style="background:#f5f7fa;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;color:#1c1e21;"><b>${p.name}</b>${p.qty?` — ${p.qty} ${p.unit||"kg"}`:""}</div>`).join("")}
+        ${productsForSupplier.map(p=>"<div style='background:#f5f7fa;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;color:#1c1e21;'><b>"+p.name+"</b>"+(p.qty?" — "+p.qty+" "+(p.unit||"kg"):"")+"</div>").join("")}
         <p style="color:#444;font-size:13px;margin-top:16px;"><b>Customer Country:</b> ${enq.country||"—"}<br/><b>Please respond within:</b> 48 hours</p>
         <p style="color:#444;font-size:13px;">Please reply with unit price, lead time, MOQ and any relevant specs.</p>
       </div>
