@@ -71,6 +71,123 @@ function getSenderEmail(assignedTo, users) {
   return u?.sender_email || "sales@mail.ingredientz.co";
 }
 
+// ── EMAIL TEMPLATES ──────────────────────────────────────────────────────────
+const RFQ_TEMPLATE = {
+  subject: (products, enqId) => `RFQ — ${products.map(p=>p.name).join(", ")} — Ingredientz [ENQ-${enqId}]`,
+  html: (supplier, products, enq) => `
+  <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e8e8e8;border-radius:12px;overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#0D1F3C,#1877F2);padding:28px 32px;">
+      <div style="color:rgba(255,255,255,0.7);font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">INGREDIENTZ INC</div>
+      <div style="color:#ffffff;font-size:22px;font-weight:bold;margin-bottom:4px;">Request for Quotation</div>
+      <div style="color:rgba(255,255,255,0.6);font-size:12px;">ENQ-${enq.id} · ${new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>
+    </div>
+    <div style="padding:28px 32px;background:#ffffff;">
+      <p style="color:#1c1e21;font-size:15px;margin:0 0 20px;">Dear <strong>${supplier.contact_name||supplier.company}</strong>,</p>
+      <p style="color:#444;font-size:14px;line-height:1.6;margin:0 0 20px;">We have received a customer enquiry and would like to request your best pricing and availability for the following products:</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+        <thead>
+          <tr style="background:#f5f7fa;">
+            <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;color:#65676B;text-transform:uppercase;border-bottom:2px solid #e4e6eb;">#</th>
+            <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;color:#65676B;text-transform:uppercase;border-bottom:2px solid #e4e6eb;">Product</th>
+            <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;color:#65676B;text-transform:uppercase;border-bottom:2px solid #e4e6eb;">Qty Required</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${products.map((p,i)=>`<tr style="border-bottom:1px solid #f0f2f5;"><td style="padding:12px 14px;font-size:13px;color:#65676B;">${i+1}</td><td style="padding:12px 14px;font-size:14px;font-weight:600;color:#1c1e21;">${p.name}</td><td style="padding:12px 14px;font-size:13px;color:#65676B;">${p.qty||"To be confirmed"} ${p.unit||"kg"}</td></tr>`).join("")}
+        </tbody>
+      </table>
+      <div style="background:#f0f4ff;border-radius:8px;padding:16px 20px;margin-bottom:24px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;color:#1877F2;text-transform:uppercase;margin-bottom:10px;">Customer Details</div>
+        <div style="font-size:13px;color:#444;"><strong>Destination Country:</strong> ${enq.country||"To be confirmed"}</div>
+        <div style="font-size:13px;color:#444;margin-top:4px;"><strong>Reference:</strong> ENQ-${enq.id}</div>
+      </div>
+      <p style="color:#444;font-size:14px;line-height:1.6;margin:0 0 12px;">Please provide your best offer including:</p>
+      <ul style="color:#444;font-size:14px;line-height:1.8;margin:0 0 24px;padding-left:20px;">
+        <li>Unit price (USD/kg or applicable unit)</li>
+        <li>Lead time from order confirmation</li>
+        <li>Minimum order quantity</li>
+        <li>Specifications, COA, and any certifications</li>
+      </ul>
+      <p style="color:#444;font-size:14px;"><strong>Please respond within 48 hours.</strong> Reply directly to this email.</p>
+    </div>
+    <div style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #e8e8e8;">
+      <div style="color:#aaa;font-size:11px;">Ingredientz Inc · sales@mail.ingredientz.co · Reply to: sales@ingredientz.co</div>
+    </div>
+  </div>`,
+  text: (supplier, products, enq) => `Dear ${supplier.contact_name||supplier.company},
+
+We have a customer enquiry and request your pricing for:
+
+${products.map((p,i)=>`${i+1}. ${p.name} — ${p.qty||"TBC"} ${p.unit||"kg"}`).join("\n")}
+
+Destination: ${enq.country||"TBC"}
+Ref: ENQ-${enq.id}
+
+Please reply with: unit price, lead time, MOQ, specs/COA.
+
+Respond within 48 hours.
+
+Ingredientz Sourcing Team
+sales@ingredientz.co`
+};
+
+const QUOTATION_TEMPLATE = {
+  subject: (products, customerName, enqId) => `Quotation — ${products[0]?.name||"Products"} — ${customerName} [ENQ-${enqId}]`,
+  html: (enq, items, grandTotal, form) => `
+  <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e8e8e8;border-radius:12px;overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#0D1F3C,#1877F2);padding:28px 32px;">
+      <div style="color:rgba(255,255,255,0.7);font-size:10px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">INGREDIENTZ INC</div>
+      <div style="color:#ffffff;font-size:22px;font-weight:bold;margin-bottom:4px;">Commercial Quotation</div>
+      <div style="color:rgba(255,255,255,0.6);font-size:12px;">ENQ-${enq.id} · Valid for ${form.validity_days||30} days · ${new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>
+    </div>
+    <div style="padding:28px 32px;background:#ffffff;">
+      <p style="color:#1c1e21;font-size:15px;margin:0 0 20px;">Dear <strong>${enq.contact_person||enq.customer_name}</strong>,</p>
+      <p style="color:#444;font-size:14px;line-height:1.6;margin:0 0 24px;">Thank you for your enquiry. Please find our commercial quotation below.</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+        <thead>
+          <tr style="background:#f5f7fa;">
+            <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;color:#65676B;text-transform:uppercase;border-bottom:2px solid #e4e6eb;">Product</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:700;letter-spacing:1px;color:#65676B;text-transform:uppercase;border-bottom:2px solid #e4e6eb;">Qty</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:700;letter-spacing:1px;color:#65676B;text-transform:uppercase;border-bottom:2px solid #e4e6eb;">Unit Price</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;font-weight:700;letter-spacing:1px;color:#65676B;text-transform:uppercase;border-bottom:2px solid #e4e6eb;">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(it=>`<tr style="border-bottom:1px solid #f0f2f5;"><td style="padding:12px 14px;font-size:14px;font-weight:600;color:#1c1e21;">${it.name}</td><td style="padding:12px 14px;font-size:13px;color:#65676B;text-align:right;">${it.qty} ${it.unit||"kg"}</td><td style="padding:12px 14px;font-size:13px;color:#65676B;text-align:right;">${enq.currency||"USD"} ${it.unitPrice}</td><td style="padding:12px 14px;font-size:13px;font-weight:600;color:#1877F2;text-align:right;">${enq.currency||"USD"} ${Number(it.totalPrice||0).toLocaleString()}</td></tr>`).join("")}
+        </tbody>
+      </table>
+      <div style="display:flex;justify-content:flex-end;padding:14px;background:#f0f4ff;border-radius:0 0 8px 8px;margin-bottom:24px;">
+        <div style="font-size:16px;font-weight:700;color:#0D1F3C;">Grand Total: <span style="color:#1877F2;">${enq.currency||"USD"} ${Number(grandTotal).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+        ${form.paymentTerms?`<tr><td style="padding:8px 0;font-size:13px;color:#65676B;width:140px;">Payment Terms</td><td style="padding:8px 0;font-size:13px;color:#1c1e21;font-weight:600;">${form.paymentTerms}</td></tr>`:""}
+        <tr><td style="padding:8px 0;font-size:13px;color:#65676B;">Incoterms</td><td style="padding:8px 0;font-size:13px;color:#1c1e21;font-weight:600;">${form.incoterms||"CIF"}</td></tr>
+        <tr><td style="padding:8px 0;font-size:13px;color:#65676B;">Validity</td><td style="padding:8px 0;font-size:13px;color:#1c1e21;font-weight:600;">${form.validity_days||30} days from date of quotation</td></tr>
+      </table>
+      ${form.notes?`<div style="background:#fffbf0;border:1px solid #ffe0a3;border-radius:8px;padding:14px 18px;margin-bottom:20px;"><div style="font-size:11px;font-weight:700;color:#f5a623;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Notes / Special Conditions</div><div style="font-size:13px;color:#444;line-height:1.6;">${form.notes}</div></div>`:""}
+      <p style="color:#444;font-size:14px;line-height:1.6;">Please feel free to reach out if you have any questions or require further information.</p>
+    </div>
+    <div style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #e8e8e8;">
+      <div style="color:#aaa;font-size:11px;">Ingredientz Inc · sales@mail.ingredientz.co · www.ingredientz.co</div>
+    </div>
+  </div>`,
+  text: (enq, items, grandTotal, form) => `Dear ${enq.contact_person||enq.customer_name},
+
+Thank you for your enquiry. Please find our quotation below.
+
+Products:
+${items.map(it=>`${it.name} — ${it.qty} ${it.unit||"kg"} @ ${enq.currency||"USD"} ${it.unitPrice} = ${enq.currency||"USD"} ${Number(it.totalPrice||0).toLocaleString()}`).join("\n")}
+
+Grand Total: ${enq.currency||"USD"} ${Number(grandTotal).toLocaleString(undefined,{minimumFractionDigits:2})}
+Validity: ${form.validity_days||30} days
+Payment Terms: ${form.paymentTerms||"To be discussed"}
+Incoterms: ${form.incoterms||"CIF"}${form.notes?"\n\nNotes: "+form.notes:""}
+
+Kind regards,
+Ingredientz Sales Team
+sales@ingredientz.co`
+};
+
 function buildEmailHtml(title, color, lines, footer) {
   const rows = lines.map(l => `<tr><td style="padding:8px 0;color:#444;font-family:Arial,sans-serif;font-size:14px;border-bottom:1px solid #f0f0f0;">${l}</td></tr>`).join("");
   return `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
@@ -1425,42 +1542,9 @@ function RFQForwardPanel({enq,users}) {
     const key=supplier.id;
     setSending(s=>({...s,[key]:true}));
     const sender="sales@mail.ingredientz.co";
-    const productLines=productsForSupplier.map(p=>"- "+p.name+(p.qty?" - "+p.qty+" "+(p.unit||"kg"):"")).join("\n");
-    const subject=`RFQ — ${productsForSupplier.map(p=>p.name).join(", ")} — Ingredientz [ENQ-${enq.id}]`;
-    const bodyText=`Dear ${supplier.contact_name||supplier.company},
-
-We have a customer enquiry and would like to request your best pricing for the following:
-
-${productLines}
-
-Customer Country: ${enq.country||"—"}
-Required Urgency: Please respond within 48 hours
-
-Please reply with:
-- Unit price (USD/kg or as applicable)
-- Lead time
-- MOQ
-- Any relevant specs or certifications
-
-Kind regards,
-Ingredientz Sourcing Team
-${sender}`;
-    const html=`<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
-      <div style="background:#1877F2;padding:20px 24px;border-radius:10px 10px 0 0;">
-        <div style="color:#fff;font-size:11px;font-weight:bold;letter-spacing:2px;margin-bottom:4px;">INGREDIENTZ INC</div>
-        <div style="color:#fff;font-size:18px;font-weight:bold;">Request for Quotation</div>
-      </div>
-      <div style="background:#fff;padding:20px 24px;border:1px solid #e8e8e8;border-top:none;">
-        <p style="color:#444;font-size:14px;">Dear <b>${supplier.contact_name||supplier.company}</b>,</p>
-        <p style="color:#444;font-size:14px;">We have a customer enquiry and would like to request your best pricing for:</p>
-        ${productsForSupplier.map(p=>"<div style='background:#f5f7fa;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;color:#1c1e21;'><b>"+p.name+"</b>"+(p.qty?" — "+p.qty+" "+(p.unit||"kg"):"")+"</div>").join("")}
-        <p style="color:#444;font-size:13px;margin-top:16px;"><b>Customer Country:</b> ${enq.country||"—"}<br/><b>Please respond within:</b> 48 hours</p>
-        <p style="color:#444;font-size:13px;">Please reply with unit price, lead time, MOQ and any relevant specs.</p>
-      </div>
-      <div style="background:#f9f9f9;padding:10px 24px;border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;">
-        <div style="color:#aaa;font-size:11px;">Ingredientz Inc · ${sender} · [ENQ-${enq.id}]</div>
-      </div>
-    </div>`;
+    const subject=RFQ_TEMPLATE.subject(productsForSupplier,enq.id);
+    const bodyText=RFQ_TEMPLATE.text(supplier,productsForSupplier,enq);
+    const html=RFQ_TEMPLATE.html(supplier,productsForSupplier,enq);
     await sendEmail({from:`Ingredientz Sourcing <${sender}>`,to:supplier.contact_email,subject,html,text:bodyText,reply_to:"sales@ingredientz.co"});
     // Log it
     await supabase.from("email_threads").insert({enquiry_id:enq.id,customer_name:enq.customer_name,direction:"auto-sent",subject,body:bodyText,from_email:sender,to_email:supplier.contact_email,sent_at:new Date().toISOString()});
@@ -1668,11 +1752,9 @@ export default function App() {
   async function sendQuotationEmail(enq,form,grandTotal,users){
     const sender=getSenderEmail(enq.assigned_to,users);
     const custEmail=customers.find(c=>c.id===enq.customer_id)?.email||"";
-    const itemLines=form.items.map(it=>{const total=it.totalPrice||(parseFloat(it.qty||0)*parseFloat(it.unitPrice||0)).toFixed(2);return "<b>"+it.name+"</b> — "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice+" = "+(enq.currency||"USD")+" "+total;}).join("<br/>");
-    const subject=`Quotation — ${(enq.products||[])[0]?.name||"Products"} — ${enq.customer_name} [ENQ-${enq.id}]`;
-    const itemsText=form.items.map(function(it){const total=it.totalPrice||(parseFloat(it.qty||0)*parseFloat(it.unitPrice||0)).toFixed(2);return it.name+" - "+it.qty+" "+it.unit+" @ "+(enq.currency||"USD")+" "+it.unitPrice+" = "+(enq.currency||"USD")+" "+total;}).join("\n");
-    const bodyText="Dear "+(enq.contact_person||enq.customer_name)+",\n\nThank you for your enquiry. Please find our quotation below.\n\nProducts:\n"+itemsText+"\n\nGrand Total: "+(enq.currency||"USD")+" "+grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})+"\nValidity: "+form.validity_days+" days\nPayment Terms: "+(form.paymentTerms||"To be discussed")+"\nIncoterms: "+form.incoterms+(form.notes?"\n\nNotes: "+form.notes:"")+"\n\nKind regards,\nIngredientz Sales Team\n"+sender;
-    const html=buildEmailHtml(subject,"#1877F2",[`Dear <b>${enq.contact_person||enq.customer_name}</b>,`,`Thank you for your enquiry. Please find our quotation below.`,`<b>Products:</b><br/>${itemLines}`,`<b>Grand Total: ${enq.currency||"USD"} ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</b>`,`<b>Validity:</b> ${form.validity_days} days`,`<b>Payment Terms:</b> ${form.paymentTerms||"To be discussed"}`,`<b>Incoterms:</b> ${form.incoterms}`,form.notes?`<b>Notes:</b> ${form.notes}`:""].filter(Boolean),`Ingredientz Inc · ${sender}`);
+    const subject=QUOTATION_TEMPLATE.subject(enq.products||[],enq.customer_name,enq.id);
+    const bodyText=QUOTATION_TEMPLATE.text(enq,form.items,grandTotal,form);
+    const html=QUOTATION_TEMPLATE.html(enq,form.items,grandTotal,form);
 
     if(custEmail){
       const res=await sendEmail({from:`Ingredientz Sales <${sender}>`,to:custEmail,subject,html,text:bodyText,reply_to:`sales@ingredientz.co`});
