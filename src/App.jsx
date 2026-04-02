@@ -650,7 +650,7 @@ function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quota
   const dClose=daysUntil(enq.expected_closure);
   const dRemind=daysUntil(enq.reminder_date);
   const products=Array.isArray(enq.products)?enq.products:[];
-  const DTABS=[{id:"details",label:"Details"},{id:"quotation",label:"Quotation"},{id:"thread",label:"Email Thread"}];
+  const DTABS=[{id:"details",label:"Details"},{id:"quotation",label:"Quotation"},{id:"thread",label:"Email Thread"},{id:"rfq",label:"Forward RFQ"}];
 
   return <div style={{position:"fixed",top:0,right:0,bottom:0,width:520,background:C.white,boxShadow:"-4px 0 20px rgba(0,0,0,0.15)",zIndex:200,overflowY:"auto",borderLeft:`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
     <div style={{padding:"20px 22px 0",flexShrink:0}}>
@@ -707,7 +707,9 @@ function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quota
           </div>
           :drawerTab==="quotation"
             ?<QuotationTab enq={enq} quotations={quotations} onSave={onSaveQuotation} onSendEmail={onSendQuotationEmail} users={users}/>
-            :<EmailThreadTab enq={enq} threads={threads} onLogEmail={onLogEmail}/>
+            :drawerTab==="rfq"
+              ?<RFQForwardPanel enq={enq} users={users}/>
+              :<EmailThreadTab enq={enq} threads={threads} onLogEmail={onLogEmail}/>
       }
     </div>
   </div>;
@@ -1227,6 +1229,7 @@ function ProductsTab() {
           <Btn label={saving?"Saving…":done?"✓ Saved!":modal==="add"?"Add Product":"Update Product"} onClick={save} disabled={saving}/>
           <Btn label="Cancel" onClick={()=>setModal(null)} variant="ghost"/>
         </div>
+        {modal!=="add"&&typeof modal==="object"&&<ProductSupplierMapping productId={modal.id} productName={form.name}/>}
       </div>
     </Modal>}
     <Card style={{overflow:"hidden"}}>
@@ -1274,6 +1277,305 @@ function ProductsTab() {
         {filtered.length===0&&<div style={{padding:36,textAlign:"center",color:C.muted,fontSize:12}}>No products yet — click + Add Product to start building your catalogue</div>}
       </div>}
     </Card>
+  </div>;
+}
+
+// ── SUPPLIERS TAB ────────────────────────────────────────────────────────────
+function SuppliersTab() {
+  const [suppliers,setSuppliers]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(null);
+  const [search,setSearch]=useState("");
+  const [form,setForm]=useState({company:"",contact_name:"",contact_email:"",country:"",status:"active"});
+  const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(false);
+
+  useEffect(()=>{load();},[]);
+
+  async function load(){
+    setLoading(true);
+    const {data}=await supabase.from("suppliers").select("*").order("created_at",{ascending:false});
+    setSuppliers(data||[]);setLoading(false);
+  }
+
+  function setF(k,v){setForm(f=>({...f,[k]:v}));}
+
+  function openAdd(){setForm({company:"",contact_name:"",contact_email:"",country:"",status:"active"});setModal("add");}
+  function openEdit(s){setForm({company:s.company,contact_name:s.contact_name||"",contact_email:s.contact_email||"",country:s.country||"",status:s.status||"active"});setModal({type:"edit",id:s.id});}
+
+  async function save(){
+    if(!form.company.trim()){alert("Company name required.");return;}
+    if(!form.contact_email.trim()){alert("Email required.");return;}
+    setSaving(true);
+    const slug=form.company.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+    if(modal==="add"){await supabase.from("suppliers").insert({...form,slug});}
+    else{await supabase.from("suppliers").update(form).eq("id",modal.id);}
+    setSaving(false);setDone(true);
+    setTimeout(()=>{setDone(false);setModal(null);load();},900);
+  }
+
+  async function del(id){
+    if(!window.confirm("Delete this supplier?"))return;
+    await supabase.from("suppliers").delete().eq("id",id);
+    setSuppliers(p=>p.filter(s=>s.id!==id));
+  }
+
+  const STATUS_COLORS={active:C.green,inactive:C.muted,pending:C.amber};
+  const inp={background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 11px",color:C.ink,fontFamily:"Arial,sans-serif",fontSize:13,outline:"none",width:"100%"};
+  const filtered=suppliers.filter(s=>!search||[s.company,s.country,s.contact_name,s.contact_email].join(" ").toLowerCase().includes(search.toLowerCase()));
+
+  return <div>
+    {modal&&<Modal title={modal==="add"?"Add Supplier":"Edit Supplier"} onClose={()=>setModal(null)} width={540}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Company Name *</label>
+            <input value={form.company} onChange={e=>setF("company",e.target.value)} placeholder="e.g. Sabinsa Corporation" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Contact Name</label>
+            <input value={form.contact_name} onChange={e=>setF("contact_name",e.target.value)} placeholder="e.g. Rajesh Kumar" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Email *</label>
+            <input type="email" value={form.contact_email} onChange={e=>setF("contact_email",e.target.value)} placeholder="supplier@company.com" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Country</label>
+            <input value={form.country} onChange={e=>setF("country",e.target.value)} placeholder="e.g. India" style={inp}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Status</label>
+            <select value={form.status} onChange={e=>setF("status",e.target.value)} style={inp}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10,paddingTop:6}}>
+          <Btn label={saving?"Saving…":done?"✓ Saved!":modal==="add"?"Add Supplier":"Update Supplier"} onClick={save} disabled={saving}/>
+          <Btn label="Cancel" onClick={()=>setModal(null)} variant="ghost"/>
+        </div>
+      </div>
+    </Modal>}
+    <Card style={{overflow:"hidden"}}>
+      <div style={{padding:"14px 18px",display:"flex",gap:10,alignItems:"center",borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+        <div style={{fontSize:18,fontWeight:700,color:C.ink}}>Suppliers <span style={{fontSize:12,color:C.blue,fontWeight:400}}>{filtered.length} suppliers</span></div>
+        <Btn label="+ Add Supplier" onClick={openAdd} size="sm"/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{marginLeft:"auto",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 12px",color:C.ink,fontSize:12,outline:"none",width:200}}/>
+      </div>
+      {loading?<div style={{padding:30,textAlign:"center",color:C.muted}}>Loading…</div>:
+      <div style={{overflowX:"auto",maxHeight:520,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead style={{position:"sticky",top:0,background:C.bg,zIndex:2}}>
+            <tr>{["Company","Country","Contact","Email","Status","Products",""].map(h=><th key={h} style={{padding:"9px 14px",textAlign:"left",color:C.muted,borderBottom:`1px solid ${C.border}`,fontWeight:700,letterSpacing:1,fontSize:9,textTransform:"uppercase"}}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {filtered.map((s,i)=><tr key={s.id} style={{background:i%2===0?C.bg:"transparent"}}>
+              <td style={{padding:"10px 14px",color:C.ink,fontWeight:600}}>{s.company}</td>
+              <td style={{padding:"10px 14px",color:C.muted}}>{s.country||"—"}</td>
+              <td style={{padding:"10px 14px",color:C.muted}}>{s.contact_name||"—"}</td>
+              <td style={{padding:"10px 14px",color:C.muted}}>{s.contact_email||"—"}</td>
+              <td style={{padding:"10px 14px"}}>
+                <span style={{background:`${STATUS_COLORS[s.status]||C.muted}22`,color:STATUS_COLORS[s.status]||C.muted,border:`1px solid ${STATUS_COLORS[s.status]||C.muted}44`,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700,textTransform:"capitalize"}}>{s.status}</span>
+              </td>
+              <td style={{padding:"10px 14px",color:C.muted,fontSize:11}}>—</td>
+              <td style={{padding:"10px 14px",display:"flex",gap:6}}>
+                <Btn label="Edit" onClick={()=>openEdit(s)} size="sm" variant="ghost"/>
+                <Btn label="✕" onClick={()=>del(s.id)} size="sm" variant="danger"/>
+              </td>
+            </tr>)}
+          </tbody>
+        </table>
+        {filtered.length===0&&<div style={{padding:36,textAlign:"center",color:C.muted,fontSize:12}}>No suppliers yet — click + Add Supplier to get started</div>}
+      </div>}
+    </Card>
+  </div>;
+}
+
+// ── SUPPLIER RFQ DRAWER (inside EnquiryDrawer) ────────────────────────────────
+function RFQForwardPanel({enq,users}) {
+  const [suppliers,setSuppliers]=useState([]);
+  const [mappings,setMappings]=useState([]);
+  const [sending,setSending]=useState({});
+  const [sent,setSent]=useState({});
+
+  useEffect(()=>{loadData();},[enq.id]);
+
+  async function loadData(){
+    const {data:sup}=await supabase.from("suppliers").select("*").eq("status","active");
+    const {data:map}=await supabase.from("supplier_products").select("*,suppliers(id,company,contact_name,contact_email),products(id,name)").eq("status","active");
+    setSuppliers(sup||[]);
+    setMappings(map||[]);
+  }
+
+  const products=Array.isArray(enq.products)?enq.products:[];
+
+  // For each product in enquiry, find mapped suppliers
+  const productSupplierMap=products.map(p=>{
+    const matched=mappings.filter(m=>m.products?.name?.toLowerCase()===p.name?.toLowerCase()||m.products?.name?.toLowerCase().includes(p.name?.toLowerCase())||p.name?.toLowerCase().includes(m.products?.name?.toLowerCase()));
+    return {product:p,mappedSuppliers:matched.map(m=>m.suppliers).filter(Boolean)};
+  });
+
+  const hasAnyMapping=productSupplierMap.some(p=>p.mappedSuppliers.length>0);
+
+  async function sendRFQ(supplier,productsForSupplier){
+    if(!supplier?.contact_email){alert("Supplier has no email.");return;}
+    const key=supplier.id;
+    setSending(s=>({...s,[key]:true}));
+    const sender="sales@mail.ingredientz.co";
+    const productLines=productsForSupplier.map(p=>`• ${p.name}${p.qty?` — ${p.qty} ${p.unit||"kg"}`:""}` ).join("
+");
+    const subject=`RFQ — ${productsForSupplier.map(p=>p.name).join(", ")} — Ingredientz [ENQ-${enq.id}]`;
+    const bodyText=`Dear ${supplier.contact_name||supplier.company},
+
+We have a customer enquiry and would like to request your best pricing for the following:
+
+${productLines}
+
+Customer Country: ${enq.country||"—"}
+Required Urgency: Please respond within 48 hours
+
+Please reply with:
+- Unit price (USD/kg or as applicable)
+- Lead time
+- MOQ
+- Any relevant specs or certifications
+
+Kind regards,
+Ingredientz Sourcing Team
+${sender}`;
+    const html=`<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+      <div style="background:#1877F2;padding:20px 24px;border-radius:10px 10px 0 0;">
+        <div style="color:#fff;font-size:11px;font-weight:bold;letter-spacing:2px;margin-bottom:4px;">INGREDIENTZ INC</div>
+        <div style="color:#fff;font-size:18px;font-weight:bold;">Request for Quotation</div>
+      </div>
+      <div style="background:#fff;padding:20px 24px;border:1px solid #e8e8e8;border-top:none;">
+        <p style="color:#444;font-size:14px;">Dear <b>${supplier.contact_name||supplier.company}</b>,</p>
+        <p style="color:#444;font-size:14px;">We have a customer enquiry and would like to request your best pricing for:</p>
+        ${productsForSupplier.map(p=>`<div style="background:#f5f7fa;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;color:#1c1e21;"><b>${p.name}</b>${p.qty?` — ${p.qty} ${p.unit||"kg"}`:""}</div>`).join("")}
+        <p style="color:#444;font-size:13px;margin-top:16px;"><b>Customer Country:</b> ${enq.country||"—"}<br/><b>Please respond within:</b> 48 hours</p>
+        <p style="color:#444;font-size:13px;">Please reply with unit price, lead time, MOQ and any relevant specs.</p>
+      </div>
+      <div style="background:#f9f9f9;padding:10px 24px;border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;">
+        <div style="color:#aaa;font-size:11px;">Ingredientz Inc · ${sender} · [ENQ-${enq.id}]</div>
+      </div>
+    </div>`;
+    await sendEmail({from:`Ingredientz Sourcing <${sender}>`,to:supplier.contact_email,subject,html,text:bodyText,reply_to:"sales@ingredientz.co"});
+    // Log it
+    await supabase.from("email_threads").insert({enquiry_id:enq.id,customer_name:enq.customer_name,direction:"auto-sent",subject,body:bodyText,from_email:sender,to_email:supplier.contact_email,sent_at:new Date().toISOString()});
+    setSending(s=>({...s,[key]:false}));
+    setSent(s=>({...s,[key]:true}));
+    setTimeout(()=>setSent(s=>({...s,[key]:false})),4000);
+  }
+
+  // Group: which suppliers cover which products
+  const supplierProductGroups={};
+  productSupplierMap.forEach(({product,mappedSuppliers})=>{
+    mappedSuppliers.forEach(sup=>{
+      if(!supplierProductGroups[sup.id]){supplierProductGroups[sup.id]={supplier:sup,products:[]};}
+      supplierProductGroups[sup.id].products.push(product);
+    });
+  });
+
+  const groups=Object.values(supplierProductGroups);
+
+  return <div style={{paddingTop:14}}>
+    <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:C.blue,textTransform:"uppercase",marginBottom:12}}>Forward RFQ to Suppliers</div>
+    {groups.length===0&&<div style={{background:C.bg,borderRadius:10,padding:16,border:`1px solid ${C.border}`,fontSize:12,color:C.muted,textAlign:"center"}}>
+      <div style={{fontSize:20,marginBottom:8}}>🔗</div>
+      No suppliers mapped to these products yet.<br/>
+      <span style={{fontSize:11}}>Go to Products tab → select a product → map suppliers.</span>
+    </div>}
+    {groups.map(({supplier,products:prods})=>(
+      <div key={supplier.id} style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:C.ink}}>{supplier.company}</div>
+            <div style={{fontSize:11,color:C.muted}}>{supplier.contact_name||""}{supplier.contact_email?` · ${supplier.contact_email}`:""}</div>
+          </div>
+          <button onClick={()=>sendRFQ(supplier,prods)} disabled={sending[supplier.id]||sent[supplier.id]}
+            style={{background:sent[supplier.id]?C.green:C.blue,color:"white",border:"none",borderRadius:7,padding:"6px 14px",cursor:(sending[supplier.id]||sent[supplier.id])?"not-allowed":"pointer",fontSize:11,fontWeight:700,opacity:(sending[supplier.id]||sent[supplier.id])?0.8:1,whiteSpace:"nowrap"}}>
+            {sent[supplier.id]?"✓ RFQ Sent!":sending[supplier.id]?"Sending…":"📨 Send RFQ"}
+          </button>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {prods.map((p,i)=><span key={i} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 10px",fontSize:11,color:C.ink}}>{p.name}{p.qty?` · ${p.qty} ${p.unit||"kg"}`:""}</span>)}
+        </div>
+      </div>
+    ))}
+    {/* Unmapped products */}
+    {productSupplierMap.filter(p=>p.mappedSuppliers.length===0).map(({product},i)=>(
+      <div key={i} style={{background:"#FFFBF0",borderRadius:10,padding:"10px 14px",border:`1px solid #FFE0A3`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:12,color:C.ink}}><span style={{fontSize:10,color:C.amber,fontWeight:700,marginRight:8}}>⚠ No supplier</span>{product.name}</div>
+        <span style={{fontSize:10,color:C.amber}}>Source needed</span>
+      </div>
+    ))}
+  </div>;
+}
+
+// ── PRODUCT SUPPLIER MAPPING (inside ProductsTab drawer) ──────────────────────
+function ProductSupplierMapping({productId,productName}) {
+  const [mappings,setMappings]=useState([]);
+  const [suppliers,setSuppliers]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [adding,setAdding]=useState(false);
+  const [selectedSup,setSelectedSup]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  useEffect(()=>{loadData();},[productId]);
+
+  async function loadData(){
+    setLoading(true);
+    const [{data:m},{data:s}]=await Promise.all([
+      supabase.from("supplier_products").select("*,suppliers(id,company,contact_name,contact_email,country,status)").eq("product_id",productId),
+      supabase.from("suppliers").select("*").eq("status","active").order("company")
+    ]);
+    setMappings(m||[]);setSuppliers(s||[]);setLoading(false);
+  }
+
+  const mappedIds=new Set(mappings.map(m=>m.supplier_id));
+  const available=suppliers.filter(s=>!mappedIds.has(s.id));
+
+  async function addMapping(){
+    if(!selectedSup){alert("Select a supplier.");return;}
+    setSaving(true);
+    await supabase.from("supplier_products").insert({supplier_id:parseInt(selectedSup),product_id:productId,status:"active",submitted_by_supplier:false});
+    setSaving(false);setAdding(false);setSelectedSup("");loadData();
+  }
+
+  async function removeMapping(id){
+    if(!window.confirm("Remove this supplier mapping?"))return;
+    await supabase.from("supplier_products").delete().eq("id",id);
+    loadData();
+  }
+
+  if(loading)return <div style={{padding:16,color:C.muted,fontSize:12}}>Loading…</div>;
+
+  return <div style={{marginTop:16,borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:C.blue,textTransform:"uppercase"}}>Mapped Suppliers ({mappings.length})</div>
+      {!adding&&available.length>0&&<button onClick={()=>setAdding(true)} style={{background:C.blueLt,border:`1px solid #BFD6F6`,borderRadius:6,padding:"4px 12px",cursor:"pointer",color:C.blue,fontSize:11,fontWeight:700}}>+ Link Supplier</button>}
+    </div>
+    {adding&&<div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+      <select value={selectedSup} onChange={e=>setSelectedSup(e.target.value)} style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 10px",color:selectedSup?C.ink:C.muted,fontSize:12,outline:"none"}}>
+        <option value="">Select supplier…</option>
+        {available.map(s=><option key={s.id} value={String(s.id)}>{s.company} ({s.country||"?"})</option>)}
+      </select>
+      <Btn label={saving?"Saving…":"Add"} onClick={addMapping} size="sm" disabled={saving}/>
+      <Btn label="Cancel" onClick={()=>{setAdding(false);setSelectedSup("");}} size="sm" variant="ghost"/>
+    </div>}
+    {mappings.length===0&&!adding&&<div style={{fontSize:11,color:C.muted,padding:"8px 0"}}>No suppliers mapped yet.</div>}
+    {mappings.map(m=>(
+      <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.bg,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.border}`,marginBottom:6}}>
+        <div>
+          <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{m.suppliers?.company||"—"}</div>
+          <div style={{fontSize:11,color:C.muted}}>{m.suppliers?.contact_email||"—"}{m.suppliers?.country?` · ${m.suppliers.country}`:""}</div>
+        </div>
+        <button onClick={()=>removeMapping(m.id)} style={{background:"transparent",border:`1px solid ${C.red}44`,borderRadius:6,padding:"3px 8px",cursor:"pointer",color:C.red,fontSize:10}}>✕</button>
+      </div>
+    ))}
   </div>;
 }
 
@@ -1403,6 +1705,7 @@ export default function App() {
     {id:"customers",label:"Customers",icon:"🏢",badge:0},
     {id:"products",label:"Products",icon:"🧪",badge:0},
     {id:"categories",label:"Categories",icon:"📂",badge:0},
+    {id:"suppliers",label:"Suppliers",icon:"🏭",badge:0},
     {id:"users",label:"Team",icon:"👥",badge:0},
   ];
 
@@ -1453,6 +1756,7 @@ export default function App() {
       {activeTab==="customers"&&<CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer}/>}
       {activeTab==="products"&&<ProductsTab/>}
       {activeTab==="categories"&&<CategoriesTab/>}
+      {activeTab==="suppliers"&&<SuppliersTab/>}
       {activeTab==="users"&&<UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser}/>}
     </div>
     <EnquiryDrawer enq={selectedEnq} onClose={()=>setSelectedEnq(null)} onStageChange={stageChange} onUpdate={updateEnquiry} customers={customers} users={users} quotations={quotations} threads={threads} onSaveQuotation={saveQuotation} onSendQuotationEmail={sendQuotationEmail} onLogEmail={logEmail}/>
