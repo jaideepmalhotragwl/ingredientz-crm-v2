@@ -156,21 +156,58 @@ export default function App() {
     }
   }
 
-  async function sendQuotationEmail(enq, form, grandTotal, users) {
+  async function sendQuotationEmail(enq, form, grandTotal, users, attachments) {
     const sender = getSenderEmail(enq.assigned_to, users);
     const custEmail = customers.find(c => c.id === enq.customer_id)?.email || "";
     const subject = QUOTATION_TEMPLATE.subject(enq.products || [], enq.customer_name, enq.id);
     const bodyText = QUOTATION_TEMPLATE.text(enq, form.items, grandTotal, form);
     const html = QUOTATION_TEMPLATE.html(enq, form.items, grandTotal, form);
+    const emailPayload = { from: `Ingredientz Sales <${sender}>`, to: custEmail, subject, html, text: bodyText, reply_to: "sales@ingredientz.co" };
+    if (attachments && attachments.length > 0) emailPayload.attachments = attachments;
     if (custEmail) {
-      const res = await sendEmail({ from: `Ingredientz Sales <${sender}>`, to: custEmail, subject, html, text: bodyText, reply_to: "sales@ingredientz.co" });
+      const res = await sendEmail(emailPayload);
       showToast(res?.id ? `✓ Quotation sent to ${custEmail}` : `✓ Quotation logged (check customer email)`);
+      // Schedule follow-up sequence: day 3, 7, 14
+      await scheduleSequence(enq, "quotation", custEmail, sender, [3, 7, 14]);
     } else {
       showToast("⚠ No customer email — quotation logged only");
     }
     const threadRow = { enquiry_id: enq.id, customer_name: enq.customer_name, direction: "auto-sent", subject, body: bodyText, from_email: sender, to_email: custEmail || enq.contact_person, sent_at: new Date().toISOString() };
     const data = await dbInsert("email_threads", threadRow);
     if (data) setThreads(p => [data, ...p]);
+  }
+
+  // Schedule a follow-up sequence (cancel any existing pending ones first)
+  async function scheduleSequence(enq, type, toEmail, fromEmail, delayDays) {
+    try {
+      // Cancel any existing pending sequences for this enquiry+type
+      await supabase.from("email_sequences")
+        .update({ cancelled_at: new Date().toISOString() })
+        .eq("enquiry_id", enq.id)
+        .eq("sequence_type", type)
+        .is("sent_at", null)
+        .is("cancelled_at", null);
+
+      // Insert new sequence steps
+      const now = new Date();
+      const rows = delayDays.map((days, idx) => {
+        const sendAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+        return {
+          enquiry_id: enq.id,
+          customer_name: enq.customer_name,
+          sequence_type: type,
+          step: idx + 1,
+          scheduled_at: sendAt.toISOString(),
+          to_email: toEmail,
+          from_email: fromEmail,
+          body_preview: (Array.isArray(enq.products) ? enq.products.map(p => p.name).join(", ") : "") || enq.customer_name
+        };
+      });
+      await supabase.from("email_sequences").insert(rows);
+      showToast(`✓ ${delayDays.length} follow-up reminders scheduled`);
+    } catch(e) {
+      console.error("scheduleSequence error:", e);
+    }
   }
 
   async function logEmail(row) {
@@ -302,6 +339,7 @@ export default function App() {
         onSaveQuotation={saveQuotation}
         onSendQuotationEmail={sendQuotationEmail}
         onLogEmail={logEmail}
+        onThreadInserted={row => setThreads(p => [row, ...p])}
       />
 
       <style>{`
