@@ -9,7 +9,7 @@ import { EmailThreadTab } from "./EmailThreadTab.jsx";
 import { RFQForwardPanel } from "./RFQForwardPanel.jsx";
 
 // ── ENQUIRY DRAWER ────────────────────────────────────────────────────────────
-function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quotations,threads,onSaveQuotation,onSendQuotationEmail,onLogEmail}) {
+function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quotations,threads,onSaveQuotation,onSendQuotationEmail,onLogEmail,onThreadInserted}) {
   const [drawerTab,setDrawerTab]=useState("details");
   const [editing,setEditing]=useState(false);
   if(!enq)return null;
@@ -74,7 +74,7 @@ function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quota
           :drawerTab==="quotation"
             ?<QuotationTab enq={enq} quotations={quotations} onSave={onSaveQuotation} onSendEmail={onSendQuotationEmail} users={users}/>
             :drawerTab==="rfq"
-              ?<RFQForwardPanel enq={enq} users={users}/>
+              ?<RFQForwardPanel enq={enq} users={users} onThreadInserted={onThreadInserted}/>
               :<EmailThreadTab enq={enq} threads={threads} onLogEmail={onLogEmail}/>
       }
     </div>

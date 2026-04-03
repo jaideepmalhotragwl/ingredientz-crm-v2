@@ -5,7 +5,7 @@ import { sendEmail } from "../utils.js";
 import { RFQ_TEMPLATE } from "../templates.js";
 
 // ── SUPPLIER RFQ DRAWER (inside EnquiryDrawer) ────────────────────────────────
-function RFQForwardPanel({enq,users}) {
+function RFQForwardPanel({enq,users,onThreadInserted}) {
   const [suppliers,setSuppliers]=useState([]);
   const [mappings,setMappings]=useState([]);
   const [sending,setSending]=useState({});
@@ -40,7 +40,24 @@ function RFQForwardPanel({enq,users}) {
     const html=RFQ_TEMPLATE.html(supplier,productsForSupplier,enq);
     await sendEmail({from:`Ingredientz Sourcing <${sender}>`,to:supplier.contact_email,subject,html,text:bodyText,reply_to:"sales@ingredientz.co"});
     // Log it
-    await supabase.from("email_threads").insert({enquiry_id:enq.id,customer_name:enq.customer_name,direction:"auto-sent",subject,body:bodyText,from_email:sender,to_email:supplier.contact_email,sent_at:new Date().toISOString()});
+    const threadRow={enquiry_id:enq.id,customer_name:enq.customer_name,direction:"auto-sent",subject,body:bodyText,from_email:sender,to_email:supplier.contact_email,sent_at:new Date().toISOString()};
+    const {data:tData}=await supabase.from("email_threads").insert(threadRow).select().single();
+    if(tData&&onThreadInserted)onThreadInserted(tData);
+    // Schedule RFQ follow-up sequence: day 1, 3, 7
+    const now=new Date();
+    const seqRows=[1,3,7].map((days,idx)=>({
+      enquiry_id:enq.id,customer_name:enq.customer_name,sequence_type:"rfq",step:idx+1,
+      scheduled_at:new Date(now.getTime()+days*86400000).toISOString(),
+      to_email:supplier.contact_email,from_email:sender,
+      body_preview:productsForSupplier.map(p=>p.name).join(", ")
+    }));
+    // Cancel any existing pending RFQ sequences for this supplier+enquiry first
+    await supabase.from("email_sequences")
+      .update({cancelled_at:new Date().toISOString()})
+      .eq("enquiry_id",enq.id).eq("sequence_type","rfq")
+      .eq("to_email",supplier.contact_email)
+      .is("sent_at",null).is("cancelled_at",null);
+    await supabase.from("email_sequences").insert(seqRows);
     setSending(s=>({...s,[key]:false}));
     setSent(s=>({...s,[key]:true}));
     setTimeout(()=>setSent(s=>({...s,[key]:false})),4000);

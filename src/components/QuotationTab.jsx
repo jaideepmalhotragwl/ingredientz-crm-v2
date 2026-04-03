@@ -22,6 +22,20 @@ function QuotationTab({enq,quotations,onSave,onSendEmail,users}) {
   const [sending,setSending]=useState(false);
   const [sent,setSent]=useState(false);
   const [showHistory,setShowHistory]=useState(false);
+  const [attachments,setAttachments]=useState([]);
+
+  async function handleAttachmentChange(e){
+    const files=Array.from(e.target.files);
+    const encoded=await Promise.all(files.map(f=>new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.onload=()=>res({filename:f.name,content:r.result.split(",")[1]});
+      r.onerror=rej;
+      r.readAsDataURL(f);
+    })));
+    setAttachments(p=>[...p,...encoded]);
+    e.target.value="";
+  }
+  function removeAttachment(idx){setAttachments(p=>p.filter((_,i)=>i!==idx));}
 
   function setF(k,v){setForm(f=>({...f,[k]:v}));}
   function setItem(i,field,val){
@@ -52,7 +66,7 @@ function QuotationTab({enq,quotations,onSave,onSendEmail,users}) {
 
   async function handleSend(){
     setSending(true);
-    await onSendEmail(enq,form,grandTotal,users);
+    await onSendEmail(enq,form,grandTotal,users,attachments.length>0?attachments:undefined);
     setSent(true);setTimeout(()=>setSent(false),3000);setSending(false);
   }
 
@@ -121,6 +135,19 @@ function QuotationTab({enq,quotations,onSave,onSendEmail,users}) {
       <label style={{fontSize:9,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Notes / Special Conditions</label>
       <textarea value={form.notes} onChange={e=>setF("notes",e.target.value)} rows={3} placeholder="e.g. Price subject to exchange rate fluctuation. Samples available on request."
         style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",color:C.ink,fontSize:12,outline:"none",resize:"vertical"}}/>
+    </div>
+    <div style={{marginBottom:16}}>
+      <label style={{fontSize:9,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase",display:"block",marginBottom:6}}>Attachments (optional)</label>
+      <label style={{display:"inline-flex",alignItems:"center",gap:6,background:C.bg,border:`1px dashed ${C.border}`,borderRadius:7,padding:"7px 14px",cursor:"pointer",fontSize:12,color:C.blue,fontWeight:600}}>
+        📎 Attach Files
+        <input type="file" multiple onChange={handleAttachmentChange} style={{display:"none"}} accept=".pdf,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg"/>
+      </label>
+      {attachments.length>0&&<div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:6}}>
+        {attachments.map((a,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:5,background:C.blueLt,border:`1px solid #BFD6F6`,borderRadius:6,padding:"3px 8px",fontSize:11,color:C.blue}}>
+          <span>{a.filename}</span>
+          <button onClick={()=>removeAttachment(i)} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontWeight:700,fontSize:13,padding:0,lineHeight:1}}>×</button>
+        </div>)}
+      </div>}
     </div>
     <div style={{display:"flex",gap:10}}>
       <button onClick={handleSave} disabled={saving} style={{background:C.blue,color:"white",border:"none",borderRadius:8,padding:"9px 18px",cursor:saving?"not-allowed":"pointer",fontSize:13,fontWeight:700,opacity:saving?0.6:1}}>
