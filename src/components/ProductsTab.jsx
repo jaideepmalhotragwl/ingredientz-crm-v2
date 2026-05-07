@@ -63,7 +63,7 @@ function ImageManager({ productId, productName, categoryName, images, onImagesUp
         method: "POST",
         headers: { "Authorization": `Bearer ${TOGETHER_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "black-forest-labs/FLUX.1-schnell-Free",
+          model: "black-forest-labs/FLUX.1-schnell",
           prompt, width: 512, height: 512, steps: 4, n: 1,
           response_format: "b64_json"
         })
