@@ -7,6 +7,9 @@ import { Modal } from "./ui/Modal.jsx";
 import { ProductSupplierMapping } from "./ProductSupplierMapping.jsx";
 import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs";
 
+const TOGETHER_KEY = "tgp_v1_h2M7NTUWbFDKlx3nsVtBDV4j-GC87R9fNB1ff5pl39A";
+const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
+
 const FIXED_CATEGORIES = [
   "Botanical Extracts","Herbal Powders","Fruit Powders","Mushroom Extracts",
   "Vitamins & Minerals","Greens & Superfoods","Enzymes","Probiotics & Prebiotics",
@@ -15,6 +18,159 @@ const FIXED_CATEGORIES = [
   "Pharmaceutical","Dairy Ingredients","Feed","Pet Food"
 ];
 
+const CAT_COLORS = {
+  "Botanical Extracts":     ["#E6F4EA","#2d6a4f"],
+  "Herbal Powders":         ["#F0FDF4","#166534"],
+  "Fruit Powders":          ["#FFF7ED","#c2410c"],
+  "Mushroom Extracts":      ["#FDF4FF","#6b21a8"],
+  "Vitamins & Minerals":    ["#EFF6FF","#1d4ed8"],
+  "Greens & Superfoods":    ["#F0FDF4","#15803d"],
+  "Enzymes":                ["#FEFCE8","#a16207"],
+  "Probiotics & Prebiotics":["#F0FDF4","#15803d"],
+  "Proteins & Amino Acids": ["#FFF7ED","#c2410c"],
+  "Fatty Acids & Oils":     ["#FFFBEB","#b45309"],
+  "Animal & Marine":        ["#EFF6FF","#0369a1"],
+  "Cosmeceuticals":         ["#FDF4FF","#7e22ce"],
+  "Sports Nutrition":       ["#FFF1F2","#be123c"],
+  "Food Ingredients":       ["#FFF7ED","#ea580c"],
+  "Chemical":               ["#F1F5F9","#475569"],
+  "Premixes & Blends":      ["#EFF6FF","#2563eb"],
+  "Pharmaceutical":         ["#F0F9FF","#0369a1"],
+  "Dairy Ingredients":      ["#FFFBEB","#d97706"],
+  "Feed":                   ["#F7FEE7","#4d7c0f"],
+  "Pet Food":               ["#FFF7ED","#c2410c"],
+};
+
+// ── IMAGE MANAGER ─────────────────────────────────────────────────────────────
+function ImageManager({ productId, productName, categoryName, images, onImagesUpdated }) {
+  const [generating, setGenerating] = useState(false);
+  const [uploading, setUploading]   = useState(false);
+  const [error, setError]           = useState(null);
+  const [progress, setProgress]     = useState("");
+
+  const imageList = Array.isArray(images) ? images : [];
+  const [bg, textColor] = CAT_COLORS[categoryName] || ["#F1F5F9","#475569"];
+  const initials = productName
+    ? productName.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase()
+    : "?";
+
+  async function generateImage() {
+    setGenerating(true); setError(null);
+    setProgress("Generating with AI…");
+    try {
+      const prompt = `Professional product photography of ${productName}, nutraceutical supplement ingredient, ${categoryName ? categoryName.toLowerCase() + ", " : ""}pure powder or extract, white background, studio lighting, soft shadows, photorealistic, high detail, clean minimal`;
+      const res = await fetch(TOGETHER_URL, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${TOGETHER_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "black-forest-labs/FLUX.1-schnell-Free",
+          prompt, width: 512, height: 512, steps: 4, n: 1,
+          response_format: "b64_json"
+        })
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || "Generation failed"); }
+      const data = await res.json();
+      const b64 = data.data?.[0]?.b64_json;
+      if (!b64) throw new Error("No image returned");
+      setProgress("Uploading to storage…");
+      const url = await uploadBase64(b64, "image/png");
+      await saveImageUrl(url);
+      setProgress("");
+    } catch(e) { setError(e.message); setProgress(""); }
+    finally { setGenerating(false); }
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true); setError(null); setProgress("Uploading…");
+    try {
+      const buf = await file.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const url = await uploadBase64(b64, file.type);
+      await saveImageUrl(url);
+      setProgress("");
+    } catch(e) { setError(e.message); setProgress(""); }
+    finally { setUploading(false); e.target.value = ""; }
+  }
+
+  async function uploadBase64(b64, mimeType) {
+    const ext = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+    const filename = `${productId}_${Date.now()}.${ext}`;
+    const byteChars = atob(b64);
+    const byteArr = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([byteArr], { type: mimeType });
+    const { error } = await supabase.storage.from("product-images").upload(filename, blob, { contentType: mimeType, upsert: true });
+    if (error) throw new Error(error.message);
+    const { data: { publicUrl } } = supabase.storage.from("product-images").getPublicUrl(filename);
+    return publicUrl;
+  }
+
+  async function saveImageUrl(url) {
+    const updated = [url, ...imageList.filter(u => u !== url)];
+    const { error } = await supabase.from("products").update({ images: updated }).eq("id", productId);
+    if (error) throw new Error(error.message);
+    onImagesUpdated(updated);
+  }
+
+  async function removeImage(url) {
+    if (!confirm("Remove this image?")) return;
+    const updated = imageList.filter(u => u !== url);
+    await supabase.from("products").update({ images: updated }).eq("id", productId);
+    onImagesUpdated(updated);
+  }
+
+  const busy = generating || uploading;
+
+  return (
+    <div style={{ marginTop: 20, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
+      <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.muted, textTransform: "uppercase", display: "block", marginBottom: 12 }}>
+        Product Images
+      </label>
+
+      {/* Image grid */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        {imageList.length === 0 && (
+          <div style={{ width: 80, height: 80, borderRadius: 8, background: bg, border: `1px solid ${textColor}22`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: textColor }}>{initials}</span>
+            <span style={{ fontSize: 8, color: textColor, opacity: 0.7 }}>{categoryName?.split(" ")[0]}</span>
+          </div>
+        )}
+        {imageList.map((url, i) => (
+          <div key={url} style={{ position: "relative" }}>
+            <img src={url} alt={productName} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, border: i === 0 ? `2px solid ${C.blue}` : `1px solid ${C.border}` }}/>
+            {i === 0 && <span style={{ position: "absolute", bottom: 3, left: 3, background: C.blue, color: "white", fontSize: 8, borderRadius: 3, padding: "1px 4px" }}>Main</span>}
+            <button onClick={() => removeImage(url)} style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", background: C.red, color: "white", border: "none", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+          </div>
+        ))}
+      </div>
+
+      {progress && (
+        <div style={{ fontSize: 11, color: C.blue, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.blue, display: "inline-block" }}/>
+          {progress}
+        </div>
+      )}
+      {error && <div style={{ fontSize: 11, color: C.red, marginBottom: 8 }}>⚠ {error}</div>}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={generateImage} disabled={busy} style={{ background: busy ? C.muted : "#6366f1", color: "white", border: "none", borderRadius: 7, padding: "7px 14px", cursor: busy ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 600, opacity: busy ? 0.7 : 1 }}>
+          {generating ? "Generating…" : "✨ Generate with AI"}
+        </button>
+        <label style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 14px", cursor: "pointer", fontSize: 11, fontWeight: 500, color: C.ink }}>
+          📎 Upload Image
+          <input type="file" accept="image/*" onChange={handleFileUpload} style={{ display: "none" }} disabled={busy}/>
+        </label>
+        {imageList.length > 1 && (
+          <span style={{ fontSize: 10, color: C.muted, alignSelf: "center" }}>{imageList.length} images · first shown on website</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── SPEC EDITOR ───────────────────────────────────────────────────────────────
 function SpecEditor({ value, onChange }) {
   const pairs = Object.entries(value || {});
   function updateKey(i, k) { const a=[...pairs]; a[i]=[k,a[i][1]]; onChange(Object.fromEntries(a)); }
@@ -36,6 +192,7 @@ function SpecEditor({ value, onChange }) {
   );
 }
 
+// ── TAG INPUT ─────────────────────────────────────────────────────────────────
 function TagInput({ tags, onChange }) {
   const [input,setInput]=useState("");
   function addTag(e) {
@@ -60,6 +217,7 @@ function TagInput({ tags, onChange }) {
   );
 }
 
+// ── EXCEL UPLOAD MODAL ────────────────────────────────────────────────────────
 function ExcelUploadModal({ cats, onClose, onImportDone }) {
   const [stage,setStage]=useState("upload");
   const [rows,setRows]=useState([]);
@@ -159,14 +317,12 @@ function ExcelUploadModal({ cats, onClose, onImportDone }) {
           </label>
         </div>
       )}
-
       {stage==="checking"&&(
         <div style={{padding:"48px 0",textAlign:"center",color:C.muted}}>
           <div style={{fontSize:32,marginBottom:12}}>🔍</div>
           <div>Checking for duplicates…</div>
         </div>
       )}
-
       {stage==="preview"&&(
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
@@ -177,17 +333,14 @@ function ExcelUploadModal({ cats, onClose, onImportDone }) {
               </div>
             ))}
           </div>
-
-          {dupCount>0&&<div style={{background:"#FFF8E7",border:`1px solid #FFE0A3`,borderRadius:8,padding:"10px 14px",fontSize:12,color:"#854F0B"}}>⚠ <strong>{dupCount} duplicate{dupCount>1?"s":""} found.</strong> Default action is SKIP. Change to OVERWRITE per row to update existing products.</div>}
+          {dupCount>0&&<div style={{background:"#FFF8E7",border:`1px solid #FFE0A3`,borderRadius:8,padding:"10px 14px",fontSize:12,color:"#854F0B"}}>⚠ <strong>{dupCount} duplicate{dupCount>1?"s":""} found.</strong> Default is SKIP. Change to OVERWRITE per row to update existing products.</div>}
           {otherCount>0&&<div style={{background:"#FFF0F0",border:`1px solid #FFDAD9`,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.red}}>📋 <strong>{otherCount} product{otherCount>1?"s":""} with "Other" category</strong> will be imported as "Pending Review".</div>}
-
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             <span style={{fontSize:11,color:C.muted,fontWeight:700}}>Bulk:</span>
             <button onClick={()=>{const d={};rows.forEach((_,i)=>{d[i]=rows[i]._error?"skip":"import";});setDecisions(d);}} style={{background:C.blueLt,border:`1px solid #BFD6F6`,borderRadius:6,padding:"4px 12px",cursor:"pointer",fontSize:11,color:C.blue,fontWeight:600}}>Select All Non-duplicates</button>
             <button onClick={()=>{const d={};rows.forEach((_,i)=>{d[i]=rows[i].duplicate?"overwrite":"import";});setDecisions(d);}} style={{background:"#FFF8E7",border:`1px solid #FFE0A3`,borderRadius:6,padding:"4px 12px",cursor:"pointer",fontSize:11,color:"#854F0B",fontWeight:600}}>Overwrite All Duplicates</button>
             <button onClick={()=>{const d={};rows.forEach((_,i)=>{d[i]="skip";});setDecisions(d);}} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 12px",cursor:"pointer",fontSize:11,color:C.muted,fontWeight:600}}>Skip All</button>
           </div>
-
           <div style={{maxHeight:360,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:8}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead style={{position:"sticky",top:0,background:C.bg,zIndex:2}}>
@@ -233,7 +386,6 @@ function ExcelUploadModal({ cats, onClose, onImportDone }) {
               </tbody>
             </table>
           </div>
-
           <div style={{display:"flex",gap:10,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
             <Btn label={`🚀 Import ${toImport+toOverwrite} Products`} onClick={runImport} disabled={toImport+toOverwrite===0}/>
             <Btn label="Back" onClick={()=>setStage("upload")} variant="ghost"/>
@@ -241,7 +393,6 @@ function ExcelUploadModal({ cats, onClose, onImportDone }) {
           </div>
         </div>
       )}
-
       {stage==="importing"&&(
         <div style={{padding:"48px 0",textAlign:"center"}}>
           <div style={{fontSize:32,marginBottom:12}}>⏳</div>
@@ -249,7 +400,6 @@ function ExcelUploadModal({ cats, onClose, onImportDone }) {
           <div style={{fontSize:12,color:C.muted}}>Syncing to Sales CRM automatically.</div>
         </div>
       )}
-
       {stage==="done"&&(
         <div style={{display:"flex",flexDirection:"column",gap:14,padding:"16px 0"}}>
           <div style={{textAlign:"center",fontSize:32}}>✅</div>
@@ -277,6 +427,7 @@ function ExcelUploadModal({ cats, onClose, onImportDone }) {
   );
 }
 
+// ── PRODUCTS TAB ──────────────────────────────────────────────────────────────
 function ProductsTab() {
   const [products,setProducts]=useState([]);
   const [cats,setCats]=useState([]);
@@ -292,7 +443,7 @@ function ProductsTab() {
   const [done,setDone]=useState(false);
   const [activeFormTab,setActiveFormTab]=useState("basic");
 
-  const emptyForm={name:"",slug:"",category_id:"",short_description:"",description:"",cas_number:"",hsn_code:"",unit:"kg",min_order_qty:"",specifications:{},tags:[],status:"active"};
+  const emptyForm={name:"",slug:"",category_id:"",short_description:"",description:"",cas_number:"",hsn_code:"",unit:"kg",min_order_qty:"",specifications:{},tags:[],images:[],status:"active"};
   const [form,setForm]=useState(emptyForm);
 
   useEffect(()=>{loadAll();},[]);
@@ -314,8 +465,18 @@ function ProductsTab() {
   function genSlug(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
   function openAdd(){setForm(emptyForm);setActiveFormTab("basic");setModal("add");}
   function openEdit(p){
-    setForm({name:p.name,slug:p.slug,category_id:String(p.category_id||""),short_description:p.short_description||"",description:p.description||"",cas_number:p.cas_number||"",hsn_code:p.hsn_code||"",unit:p.unit||"kg",min_order_qty:p.min_order_qty||"",specifications:p.specifications||{},tags:Array.isArray(p.tags)?p.tags:[],status:p.status||"active"});
-    setActiveFormTab("basic");setModal({type:"edit",id:p.id,synced_at:p.synced_at});
+    setForm({
+      name:p.name,slug:p.slug,category_id:String(p.category_id||""),
+      short_description:p.short_description||"",description:p.description||"",
+      cas_number:p.cas_number||"",hsn_code:p.hsn_code||"",
+      unit:p.unit||"kg",min_order_qty:p.min_order_qty||"",
+      specifications:p.specifications||{},
+      tags:Array.isArray(p.tags)?p.tags:[],
+      images:Array.isArray(p.images)?p.images:[],
+      status:p.status||"active"
+    });
+    setActiveFormTab("basic");
+    setModal({type:"edit",id:p.id,synced_at:p.synced_at});
   }
 
   async function save(){
@@ -323,7 +484,14 @@ function ProductsTab() {
     if(!form.category_id){alert("Category required.");return;}
     setSaving(true);
     const slug=form.slug||genSlug(form.name);
-    const row={name:form.name,slug,category_id:parseInt(form.category_id),short_description:form.short_description,description:form.description,cas_number:form.cas_number,hsn_code:form.hsn_code,unit:form.unit,min_order_qty:form.min_order_qty?parseFloat(form.min_order_qty):null,specifications:form.specifications,tags:form.tags,status:form.status,created_by:"Jaideep"};
+    const row={
+      name:form.name,slug,category_id:parseInt(form.category_id),
+      short_description:form.short_description,description:form.description,
+      cas_number:form.cas_number,hsn_code:form.hsn_code,unit:form.unit,
+      min_order_qty:form.min_order_qty?parseFloat(form.min_order_qty):null,
+      specifications:form.specifications,tags:form.tags,
+      images:form.images,status:form.status,created_by:"Jaideep"
+    };
     if(modal==="add"){await supabase.from("products").insert(row);}
     else{await supabase.from("products").update(row).eq("id",modal.id);}
     setSaving(false);setDone(true);
@@ -351,6 +519,7 @@ function ProductsTab() {
   const syncedCount=products.filter(p=>p.synced_at).length;
   const notSyncedCount=products.filter(p=>!p.synced_at).length;
   const pendingReviewCount=products.filter(p=>p.status==="pending").length;
+  const withImagesCount=products.filter(p=>Array.isArray(p.images)&&p.images.length>0).length;
 
   return <div>
     {showUpload&&<ExcelUploadModal cats={cats} onClose={()=>setShowUpload(false)} onImportDone={loadAll}/>}
@@ -438,11 +607,28 @@ function ProductsTab() {
           </span>
         )}
       </div>
-      {modal!=="add"&&typeof modal==="object"&&<ProductSupplierMapping productId={modal.id} productName={form.name}/>}
+
+      {modal!=="add"&&typeof modal==="object"&&<>
+        <ImageManager
+          productId={modal.id}
+          productName={form.name}
+          categoryName={cats.find(c=>String(c.id)===form.category_id)?.name||""}
+          images={form.images||[]}
+          onImagesUpdated={imgs=>setF("images",imgs)}
+        />
+        <ProductSupplierMapping productId={modal.id} productName={form.name}/>
+      </>}
     </Modal>}
 
+    {/* KPI bar */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16}}>
-      {[["Total Products",products.length,C.blue],["Active",products.filter(p=>p.status==="active").length,C.green],["Pending Review",pendingReviewCount,pendingReviewCount>0?C.amber:C.muted],["Synced",syncedCount,C.green],["Not Synced",notSyncedCount,notSyncedCount>0?C.amber:C.muted]].map(([label,val,color])=>(
+      {[
+        ["Total Products",products.length,C.blue],
+        ["Active",products.filter(p=>p.status==="active").length,C.green],
+        ["With Images",withImagesCount,withImagesCount>0?C.blue:C.muted],
+        ["Pending Review",pendingReviewCount,pendingReviewCount>0?C.amber:C.muted],
+        ["Synced",syncedCount,C.green],
+      ].map(([label,val,color])=>(
         <div key={label} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px"}}>
           <div style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>{label}</div>
           <div style={{fontSize:22,fontWeight:700,color}}>{val}</div>
@@ -490,55 +676,66 @@ function ProductsTab() {
         <div style={{overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead style={{position:"sticky",top:0,background:C.bg,zIndex:2}}>
-              <tr>{["Product Name","Category","CAS Number","Specs","MOQ","Tags","Status","Sync",""].map(h=>(
+              <tr>{["","Product Name","Category","CAS Number","Specs","MOQ","Tags","Status","Sync",""].map(h=>(
                 <th key={h} style={{padding:"9px 12px",textAlign:"left",color:C.muted,borderBottom:`1px solid ${C.border}`,fontWeight:700,letterSpacing:1,fontSize:9,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
               ))}</tr>
             </thead>
             <tbody>
-              {filtered.map((p,i)=>(
-                <tr key={p.id} style={{background:p.status==="pending"?"#FFFBF0":i%2===0?C.bg:"transparent",borderBottom:`1px solid ${C.border}`}}>
-                  <td style={{padding:"10px 12px",minWidth:180}}>
-                    <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{p.name}</div>
-                    {p.short_description&&<div style={{fontSize:10,color:C.muted,marginTop:1,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.short_description}</div>}
-                  </td>
-                  <td style={{padding:"10px 12px",fontSize:11,whiteSpace:"nowrap"}}>{p.product_categories?.name||<span style={{color:C.amber,fontWeight:700}}>⚠ Unassigned</span>}</td>
-                  <td style={{padding:"10px 12px",color:C.muted,fontSize:11,fontFamily:"monospace"}}>{p.cas_number||"—"}</td>
-                  <td style={{padding:"10px 12px"}}>
-                    {p.specifications&&Object.keys(p.specifications).length>0
-                      ?<div style={{display:"flex",flexDirection:"column",gap:2}}>
-                        {Object.entries(p.specifications).slice(0,2).map(([k,v])=>(
-                          <div key={k} style={{fontSize:10,color:C.muted}}><span style={{color:C.ink,fontWeight:600}}>{k}:</span> {v}</div>
+              {filtered.map((p,i)=>{
+                const [bg,textColor]=CAT_COLORS[p.product_categories?.name]||["#F1F5F9","#475569"];
+                const thumb=Array.isArray(p.images)&&p.images.length>0?p.images[0]:null;
+                return (
+                  <tr key={p.id} style={{background:p.status==="pending"?"#FFFBF0":i%2===0?C.bg:"transparent",borderBottom:`1px solid ${C.border}`}}>
+                    <td style={{padding:"8px 12px"}}>
+                      {thumb
+                        ?<img src={thumb} alt={p.name} style={{width:36,height:36,borderRadius:6,objectFit:"cover",border:`1px solid ${C.border}`}}/>
+                        :<div style={{width:36,height:36,borderRadius:6,background:bg,border:`1px solid ${textColor}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:textColor}}>
+                          {p.name.split(" ").slice(0,2).map(w=>w[0]).join("").toUpperCase()}
+                        </div>}
+                    </td>
+                    <td style={{padding:"10px 12px",minWidth:180}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{p.name}</div>
+                      {p.short_description&&<div style={{fontSize:10,color:C.muted,marginTop:1,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.short_description}</div>}
+                    </td>
+                    <td style={{padding:"10px 12px",fontSize:11,whiteSpace:"nowrap"}}>{p.product_categories?.name||<span style={{color:C.amber,fontWeight:700}}>⚠ Unassigned</span>}</td>
+                    <td style={{padding:"10px 12px",color:C.muted,fontSize:11,fontFamily:"monospace"}}>{p.cas_number||"—"}</td>
+                    <td style={{padding:"10px 12px"}}>
+                      {p.specifications&&Object.keys(p.specifications).length>0
+                        ?<div style={{display:"flex",flexDirection:"column",gap:2}}>
+                          {Object.entries(p.specifications).slice(0,2).map(([k,v])=>(
+                            <div key={k} style={{fontSize:10,color:C.muted}}><span style={{color:C.ink,fontWeight:600}}>{k}:</span> {v}</div>
+                          ))}
+                          {Object.keys(p.specifications).length>2&&<div style={{fontSize:10,color:C.blue}}>+{Object.keys(p.specifications).length-2} more</div>}
+                        </div>
+                        :<span style={{color:C.muted,fontSize:11}}>—</span>}
+                    </td>
+                    <td style={{padding:"10px 12px",color:C.muted,fontSize:11,whiteSpace:"nowrap"}}>{p.min_order_qty?`${p.min_order_qty} ${p.unit}`:"—"}</td>
+                    <td style={{padding:"10px 12px",maxWidth:140}}>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                        {(p.tags||[]).slice(0,3).map(t=>(
+                          <span key={t} style={{background:C.blueLt,color:C.blue,borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:600}}>{t}</span>
                         ))}
-                        {Object.keys(p.specifications).length>2&&<div style={{fontSize:10,color:C.blue}}>+{Object.keys(p.specifications).length-2} more</div>}
+                        {(p.tags||[]).length>3&&<span style={{fontSize:9,color:C.muted}}>+{p.tags.length-3}</span>}
                       </div>
-                      :<span style={{color:C.muted,fontSize:11}}>—</span>}
-                  </td>
-                  <td style={{padding:"10px 12px",color:C.muted,fontSize:11,whiteSpace:"nowrap"}}>{p.min_order_qty?`${p.min_order_qty} ${p.unit}`:"—"}</td>
-                  <td style={{padding:"10px 12px",maxWidth:140}}>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
-                      {(p.tags||[]).slice(0,3).map(t=>(
-                        <span key={t} style={{background:C.blueLt,color:C.blue,borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:600}}>{t}</span>
-                      ))}
-                      {(p.tags||[]).length>3&&<span style={{fontSize:9,color:C.muted}}>+{p.tags.length-3}</span>}
-                    </div>
-                  </td>
-                  <td style={{padding:"10px 12px"}}>
-                    <span onClick={()=>toggleStatus(p)} style={{background:`${STATUS_COLORS[p.status]||C.muted}22`,color:STATUS_COLORS[p.status]||C.muted,border:`1px solid ${STATUS_COLORS[p.status]||C.muted}44`,borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700,cursor:"pointer",textTransform:"capitalize",whiteSpace:"nowrap"}}>{p.status==="pending"?"📋 Pending":p.status}</span>
-                  </td>
-                  <td style={{padding:"10px 12px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <div style={{width:7,height:7,borderRadius:"50%",background:p.synced_at?C.green:C.amber,flexShrink:0}}/>
-                      <span style={{fontSize:10,color:p.synced_at?C.green:C.amber,fontWeight:600,whiteSpace:"nowrap"}}>{p.synced_at?"Synced":"Pending"}</span>
-                    </div>
-                  </td>
-                  <td style={{padding:"10px 12px"}}>
-                    <div style={{display:"flex",gap:5}}>
-                      <Btn label="Edit" onClick={()=>openEdit(p)} size="sm" variant="ghost"/>
-                      <Btn label="✕" onClick={()=>del(p.id)} size="sm" variant="danger"/>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      <span onClick={()=>toggleStatus(p)} style={{background:`${STATUS_COLORS[p.status]||C.muted}22`,color:STATUS_COLORS[p.status]||C.muted,border:`1px solid ${STATUS_COLORS[p.status]||C.muted}44`,borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700,cursor:"pointer",textTransform:"capitalize",whiteSpace:"nowrap"}}>{p.status==="pending"?"📋 Pending":p.status}</span>
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <div style={{width:7,height:7,borderRadius:"50%",background:p.synced_at?C.green:C.amber,flexShrink:0}}/>
+                        <span style={{fontSize:10,color:p.synced_at?C.green:C.amber,fontWeight:600,whiteSpace:"nowrap"}}>{p.synced_at?"Synced":"Pending"}</span>
+                      </div>
+                    </td>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{display:"flex",gap:5}}>
+                        <Btn label="Edit" onClick={()=>openEdit(p)} size="sm" variant="ghost"/>
+                        <Btn label="✕" onClick={()=>del(p.id)} size="sm" variant="danger"/>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {filtered.length===0&&<div style={{padding:36,textAlign:"center",color:C.muted,fontSize:12}}>No products match your filters</div>}
