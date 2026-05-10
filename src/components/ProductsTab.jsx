@@ -3,6 +3,7 @@ import { supabase } from "../config.js";
 import { C } from "../constants.js";
 import { Btn } from "./ui/Btn.jsx";
 import { Card } from "./ui/Card.jsx";
+import { AIDoctor } from "./AIDoctor.jsx";
 import { Modal } from "./ui/Modal.jsx";
 import { ProductSupplierMapping } from "./ProductSupplierMapping.jsx";
 import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs";
@@ -101,10 +102,28 @@ function ImageManager({ productId, productName, categoryName, images, onImagesUp
     const byteArr = new Uint8Array(byteChars.length);
     for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
     const blob = new Blob([byteArr], { type: mimeType });
-    const { error } = await supabase.storage.from("product-images").upload(filename, blob, { contentType: mimeType, upsert: true });
-    if (error) throw new Error(error.message);
-    const { data: { publicUrl } } = supabase.storage.from("product-images").getPublicUrl(filename);
-    return publicUrl;
+
+    // Use REST API directly to avoid client permission issues
+    const SUPA_URL = "https://eytoryygkxjslfvsqanl.supabase.co";
+    const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dG9yeXlna3hqc2xmdnNxYW5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NDA5MTUsImV4cCI6MjA5MDMxNjkxNX0.txYTl0Q06mKSfWGmWc8cOTmCN46tLcxF9_7RhBUHBRY";
+
+    const res = await fetch(
+      `${SUPA_URL}/storage/v1/object/product-images/${filename}`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPA_KEY}`,
+          "Content-Type": mimeType,
+          "x-upsert": "true"
+        },
+        body: blob
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      throw new Error(err.message || `Upload failed: ${res.status}`);
+    }
+    return `${SUPA_URL}/storage/v1/object/public/product-images/${filename}`;
   }
 
   async function saveImageUrl(url) {
@@ -435,6 +454,7 @@ function ProductsTab() {
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(null);
   const [showUpload,setShowUpload]=useState(false);
+  const [view,setView]=useState("products"); // products | ai_doctor
   const [search,setSearch]=useState("");
   const [filterCat,setFilterCat]=useState("");
   const [filterStatus,setFilterStatus]=useState("");
@@ -443,7 +463,7 @@ function ProductsTab() {
   const [done,setDone]=useState(false);
   const [activeFormTab,setActiveFormTab]=useState("basic");
 
-  const emptyForm={name:"",slug:"",category_id:"",short_description:"",description:"",cas_number:"",hsn_code:"",unit:"kg",min_order_qty:"",specifications:{},tags:[],images:[],status:"active"};
+  const emptyForm={name:"",slug:"",category_id:"",short_description:"",description:"",cas_number:"",hsn_code:"",unit:"kg",min_order_qty:"",specifications:{},tags:[],images:[],status:"active",featured:false,ready_stock:false,stock_qty:""};
   const [form,setForm]=useState(emptyForm);
 
   useEffect(()=>{loadAll();},[]);
@@ -473,7 +493,10 @@ function ProductsTab() {
       specifications:p.specifications||{},
       tags:Array.isArray(p.tags)?p.tags:[],
       images:Array.isArray(p.images)?p.images:[],
-      status:p.status||"active"
+      status:p.status||"active",
+      featured:!!p.featured,
+      ready_stock:!!p.ready_stock,
+      stock_qty:p.stock_qty||""
     });
     setActiveFormTab("basic");
     setModal({type:"edit",id:p.id,synced_at:p.synced_at});
@@ -490,7 +513,11 @@ function ProductsTab() {
       cas_number:form.cas_number,hsn_code:form.hsn_code,unit:form.unit,
       min_order_qty:form.min_order_qty?parseFloat(form.min_order_qty):null,
       specifications:form.specifications,tags:form.tags,
-      images:form.images,status:form.status,created_by:"Jaideep"
+      images:form.images,status:form.status,
+      featured:form.featured,
+      ready_stock:form.ready_stock,
+      stock_qty:form.stock_qty?parseFloat(form.stock_qty):null,
+      created_by:"Jaideep"
     };
     if(modal==="add"){await supabase.from("products").insert(row);}
     else{await supabase.from("products").update(row).eq("id",modal.id);}
@@ -522,6 +549,10 @@ function ProductsTab() {
   const withImagesCount=products.filter(p=>Array.isArray(p.images)&&p.images.length>0).length;
 
   return <div>
+    {/* AI Doctor view */}
+    {view==="ai_doctor"&&<AIDoctor cats={cats} onDone={()=>{setView("products");loadAll();}}/>}
+
+    {view==="products"&&<>
     {showUpload&&<ExcelUploadModal cats={cats} onClose={()=>setShowUpload(false)} onImportDone={loadAll}/>}
 
     {modal&&<Modal title={modal==="add"?"Add Product":"Edit Product"} onClose={()=>setModal(null)} width={820}>
@@ -564,6 +595,29 @@ function ProductsTab() {
         <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
           <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Tags <span style={{color:C.muted,fontWeight:400,fontSize:9}}>press Enter after each tag</span></label>
           <TagInput tags={form.tags} onChange={v=>setF("tags",v)}/>
+        </div>
+        {/* Featured + Ready Stock */}
+        <div style={{display:"flex",gap:16,gridColumn:"span 2",paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={form.featured} onChange={e=>setF("featured",e.target.checked)} style={{width:16,height:16,accentColor:C.blue}}/>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:C.ink}}>⭐ Featured on Homepage</div>
+              <div style={{fontSize:10,color:C.muted}}>Show in featured products section</div>
+            </div>
+          </label>
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={form.ready_stock} onChange={e=>setF("ready_stock",e.target.checked)} style={{width:16,height:16,accentColor:C.green}}/>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:C.ink}}>📦 Ready Stock</div>
+              <div style={{fontSize:10,color:C.muted}}>Show in website stock ticker</div>
+            </div>
+          </label>
+          {form.ready_stock&&(
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Stock Qty ({form.unit})</label>
+              <input type="number" value={form.stock_qty} onChange={e=>setF("stock_qty",e.target.value)} placeholder="e.g. 500" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 10px",fontSize:12,outline:"none",width:100}}/>
+            </div>
+          )}
         </div>
       </div>}
 
@@ -653,6 +707,7 @@ function ProductsTab() {
         <Btn label="+ Add Product" onClick={openAdd} size="sm"/>
         <button onClick={()=>setShowUpload(true)} style={{background:"#E6F4EA",color:C.green,border:`1px solid #C3E6CB`,borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700}}>📊 Import Excel</button>
         <a href="/Ingredientz_Product_Upload_Template.xlsx" download style={{background:C.bg,color:C.muted,border:`1px solid ${C.border}`,borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"none"}}>⬇ Download Template</a>
+        <button onClick={()=>setView("ai_doctor")} style={{background:"#6366f1",color:"white",border:"none",borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700}}>🩺 AI Doctor</button>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, CAS, tag…" style={{marginLeft:"auto",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 12px",color:C.ink,fontSize:12,outline:"none",width:200}}/>
         <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",color:C.ink,fontSize:11}}>
           <option value="">All Categories</option>
@@ -741,6 +796,7 @@ function ProductsTab() {
           {filtered.length===0&&<div style={{padding:36,textAlign:"center",color:C.muted,fontSize:12}}>No products match your filters</div>}
         </div>}
     </Card>
+    </>}
   </div>;
 }
 
