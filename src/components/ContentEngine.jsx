@@ -29,7 +29,12 @@ async function callClaude(prompt, maxTokens = 4000) {
       messages: [{ role: "user", content: prompt }]
     })
   });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Proxy error ${res.status}: ${errText.slice(0, 200)}`);
+  }
   const data = await res.json();
+  if (data.error) throw new Error(`Claude error: ${data.error.message || JSON.stringify(data.error)}`);
   return data.content?.[0]?.text || "";
 }
 
@@ -109,8 +114,9 @@ export function ContentEngine({ onDone }) {
     if (!result) return;
     setSaving(true);
     try {
-      const slug = slugify(result.title);
-      await supabase.from("blog_posts").insert({
+      // Add timestamp to slug to prevent duplicates
+      const slug = slugify(result.title) + "-" + Date.now();
+      const { error } = await supabase.from("blog_posts").insert({
         title: result.title,
         slug,
         meta_description: result.meta_description,
@@ -127,6 +133,7 @@ export function ContentEngine({ onDone }) {
         twitter_post: result.twitter_post,
         published_at: status === "published" ? new Date().toISOString() : null,
       });
+      if (error) throw new Error(error.message);
       setSaved(true);
     } catch (e) {
       alert("Save failed: " + e.message);
