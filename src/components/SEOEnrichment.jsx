@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../config.js";
 import { C } from "../constants.js";
 
-const CLAUDE_API = "https://api.anthropic.com/v1/messages";
+const CLAUDE_API = "https://eytoryygkxjslfvsqanl.supabase.co/functions/v1/claude-proxy";
 
 // ── GENERATE DESCRIPTION FOR A BATCH OF PRODUCTS ──────────────────────────
 async function enrichBatch(products) {
