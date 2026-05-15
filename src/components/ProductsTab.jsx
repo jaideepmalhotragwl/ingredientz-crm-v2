@@ -4,6 +4,7 @@ import { C } from "../constants.js";
 import { Btn } from "./ui/Btn.jsx";
 import { Card } from "./ui/Card.jsx";
 import { AIDoctor } from "./AIDoctor.jsx";
+import { SEOEnrichment } from "./SEOEnrichment.jsx";
 import { Modal } from "./ui/Modal.jsx";
 import { ProductSupplierMapping } from "./ProductSupplierMapping.jsx";
 import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs";
@@ -454,7 +455,7 @@ function ProductsTab() {
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(null);
   const [showUpload,setShowUpload]=useState(false);
-  const [view,setView]=useState("products"); // products | ai_doctor
+  const [view,setView]=useState("products"); // products | ai_doctor | seo_enrichment
   const [search,setSearch]=useState("");
   const [filterCat,setFilterCat]=useState("");
   const [filterStatus,setFilterStatus]=useState("");
@@ -551,6 +552,7 @@ function ProductsTab() {
   return <div>
     {/* AI Doctor view */}
     {view==="ai_doctor"&&<AIDoctor cats={cats} onDone={()=>{setView("products");loadAll();}}/>}
+    {view==="seo_enrichment"&&<SEOEnrichment onDone={()=>{setView("products");loadAll();}}/>}
 
     {view==="products"&&<>
     {showUpload&&<ExcelUploadModal cats={cats} onClose={()=>setShowUpload(false)} onImportDone={loadAll}/>}
@@ -708,6 +710,7 @@ function ProductsTab() {
         <button onClick={()=>setShowUpload(true)} style={{background:"#E6F4EA",color:C.green,border:`1px solid #C3E6CB`,borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700}}>📊 Import Excel</button>
         <a href="/Ingredientz_Product_Upload_Template.xlsx" download style={{background:C.bg,color:C.muted,border:`1px solid ${C.border}`,borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"none"}}>⬇ Download Template</a>
         <button onClick={()=>setView("ai_doctor")} style={{background:"#6366f1",color:"white",border:"none",borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700}}>🩺 AI Doctor</button>
+        <button onClick={()=>setView("seo_enrichment")} style={{background:"#10b981",color:"white",border:"none",borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700}}>✍️ SEO Enrich</button>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, CAS, tag…" style={{marginLeft:"auto",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 12px",color:C.ink,fontSize:12,outline:"none",width:200}}/>
         <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",color:C.ink,fontSize:11}}>
           <option value="">All Categories</option>
