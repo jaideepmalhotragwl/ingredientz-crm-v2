@@ -291,24 +291,29 @@ export function DocumentsTab() {
   }
   .lh-content li { margin: 2px 0; }
 
-  /* Stamp placement */
+  /* Stamp placement — uses <img> inside .stamp-placeholder so it survives print-to-PDF */
   .stamp-placeholder {
     display: block;
-    height: 110px;
+    height: 130px;
     margin-top: 24px;
     position: relative;
   }
-  .stamp-placeholder::before {
-    content: "";
+  .stamp-placeholder img,
+  .stamp-placeholder::after {
     position: absolute;
     right: 0; top: 0;
-    width: 230px; height: 130px;
-    background-image: url('${stampSrc}');
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: right center;
+    width: 230px; height: auto;
     opacity: 0.85;
     transform: rotate(-3deg);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Force browsers to print backgrounds + colors (critical for stamp + section bands + table headers) */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 
   @media print {
@@ -323,7 +328,23 @@ export function DocumentsTab() {
   <div class="lh-content">${bodyHtml}</div>
   <div class="lh-footer"><img src="${footerSrc}"></div>
 </div>
-<script>setTimeout(() => window.print(), 1200);<\/script>
+<script>
+  // Inject real <img> stamps into any stamp-placeholder divs.
+  // CSS background-image is stripped when browsers print to PDF; <img> is preserved.
+  (function() {
+    var stamps = document.querySelectorAll('.stamp-placeholder');
+    for (var i = 0; i < stamps.length; i++) {
+      if (!stamps[i].querySelector('img')) {
+        var img = document.createElement('img');
+        img.src = '${stampSrc}';
+        img.alt = 'Verified Copy Stamp';
+        stamps[i].appendChild(img);
+      }
+    }
+    // Give images + fonts a moment to load, then open print dialog
+    setTimeout(function() { window.print(); }, 1500);
+  })();
+<\/script>
 </body></html>`);
     win.document.close();
   }
