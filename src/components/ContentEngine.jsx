@@ -43,30 +43,26 @@ async function generateArticle({ productName, theme, trendingTopic, customKeywor
   const topic = trendingTopic || customKeyword || productName;
   const themeLabel = THEMES.find(t => t.id === theme)?.label || theme;
 
-  const prompt = `You are an expert nutraceutical industry content writer for Ingredientz — a global B2B nutraceutical ingredients platform.
+  const prompt = `Write a B2B nutraceutical blog article for Ingredientz (global ingredients platform).
 
-Write a comprehensive SEO-optimised blog article. Return ONLY valid JSON, no markdown.
+Product: ${topic}
+Theme: ${themeLabel}
+${trendingTopic ? `Trending context: ${trendingTopic}` : ""}
+Audience: procurement managers and formulators in USA, UK, EU.
 
-Topic: ${topic}
-Product focus: ${productName || topic}
-Article theme: ${themeLabel}
-${trendingTopic ? `Trending context: This topic is trending in nutraceutical industry right now — ${trendingTopic}` : ""}
-
-Write the article targeting procurement managers, supplement formulators and nutraceutical brand owners in USA, UK, Germany, France, Spain and Canada.
-
-Return this exact JSON structure:
+Return ONLY valid JSON (no markdown):
 {
-  "title": "SEO-optimised title, 50-60 chars, includes primary keyword",
-  "meta_description": "155-160 char meta description with CTA",
-  "excerpt": "2-3 sentence article summary for listing page",
-  "keywords": ["keyword1","keyword2","keyword3","keyword4","keyword5"],
-  "content": "Full HTML article body (no <html>/<body> tags). Use <h2>, <h3>, <p>, <ul>, <li>, <strong> tags. 900-1200 words. Include: introduction, 4-5 main sections with subheadings, practical B2B advice, subtle mention of Ingredientz as a trusted supplier at the end.",
-  "linkedin_post": "Professional LinkedIn post 150-200 words with 3-4 hashtags. Shares key insight from article.",
-  "whatsapp_message": "Short WhatsApp message 50-80 words with article link placeholder [LINK]. Casual but professional.",
-  "twitter_post": "Tweet max 250 chars with 2-3 hashtags and [LINK] placeholder."
+  "title": "SEO title 50-60 chars",
+  "meta_description": "155 char meta with CTA",
+  "excerpt": "2 sentence summary",
+  "keywords": ["kw1","kw2","kw3","kw4","kw5"],
+  "content": "HTML article 700-900 words using h2,h3,p,ul,li,strong tags. Include intro, 3-4 sections, practical B2B advice, brief Ingredientz mention at end.",
+  "linkedin_post": "150 word LinkedIn post with 3 hashtags",
+  "whatsapp_message": "60 word WhatsApp message with [LINK]",
+  "twitter_post": "200 char tweet with 2 hashtags and [LINK]"
 }`;
 
-  const raw = await callClaude(prompt, 6000);
+  const raw = await callClaude(prompt, 3000);
   const clean = raw.replace(/```json|```/g, "").trim();
   return JSON.parse(clean);
 }
