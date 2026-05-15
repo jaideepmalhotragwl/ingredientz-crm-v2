@@ -12,6 +12,7 @@ import { ProductsTab }     from "./components/ProductsTab.jsx";
 import { CategoriesTab }   from "./components/CategoriesTab.jsx";
 import { SuppliersTab }    from "./components/SuppliersTab.jsx";
 import { UsersTab }        from "./components/UsersTab.jsx";
+import { DocumentsTab }    from "./components/DocumentsTab.jsx";
 import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
@@ -242,6 +243,7 @@ export default function App() {
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
     { id: "categories", label: "Categories", icon: "📂", badge: 0 },
     { id: "suppliers",  label: "Suppliers",  icon: "🏭", badge: 0 },
+    { id: "documents",  label: "Documents",  icon: "📄", badge: 0 },
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
   ];
 
@@ -324,6 +326,7 @@ export default function App() {
         {activeTab === "products"   && <ProductsTab />}
         {activeTab === "categories" && <CategoriesTab />}
         {activeTab === "suppliers"  && <SuppliersTab />}
+        {activeTab === "documents"  && <DocumentsTab />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
 
