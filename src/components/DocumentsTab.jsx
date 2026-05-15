@@ -24,7 +24,6 @@ const COUNTRIES = [
 
 const INC_COUNTRIES = new Set(["United States", "Canada"]);
 
-// ── ENTITY CONFIG (for printed letterhead) ──────────────────────────────
 const ENTITIES = {
   INC: {
     name: "Ingredientz Inc",
@@ -36,6 +35,7 @@ const ENTITIES = {
     headerImg: "/letterheads/header.png",
     footerImg: "/letterheads/footer.png",
     watermarkImg: "/letterheads/watermark.png",
+    stampImg: "/letterheads/stamp.png",
   },
   PROIN: {
     name: "Proingredientz Connections Pvt. Ltd.",
@@ -47,6 +47,7 @@ const ENTITIES = {
     headerImg: null,
     footerImg: null,
     watermarkImg: null,
+    stampImg: null,
   },
 };
 
@@ -59,7 +60,6 @@ const DOC_TYPES = [
   { id: "letter",  label: "General Letter" },
 ];
 
-// Supabase Edge Function endpoint
 const REFORMAT_ENDPOINT = `${SUPA_URL}/functions/v1/reformat-document`;
 
 function resolveLetterhead(country) {
@@ -108,9 +108,6 @@ export function DocumentsTab() {
     try {
       const fileB64 = await readFileAsBase64(file);
 
-      // Call the Supabase Edge Function.
-      // Anthropic API key lives as a Supabase secret on the server side —
-      // never reaches the browser.
       const res = await fetch(REFORMAT_ENDPOINT, {
         method: "POST",
         headers: {
@@ -138,7 +135,7 @@ export function DocumentsTab() {
       if (error) throw new Error(error);
 
       setStatus({ type: "success", msg: "Conversion complete. Opening for preview…" });
-      renderLetterhead(html, entity);
+      renderLetterhead(html, entity, addStamp);
     } catch (err) {
       setStatus({ type: "error", msg: "Conversion failed: " + err.message });
     } finally {
@@ -146,24 +143,35 @@ export function DocumentsTab() {
     }
   }
 
-  function renderLetterhead(bodyHtml, ent) {
+  // ── Render the AI-extracted HTML inside an A4 letterhead in a new window
+  // STYLE A — PHARMA CLASSIC typography baked in
+  function renderLetterhead(bodyHtml, ent, withStamp) {
     const win = window.open("", "_blank");
     if (!win) {
       setStatus({ type: "error", msg: "Popup blocked. Allow popups for this site." });
       return;
     }
     const baseUrl = window.location.origin;
-    const headerSrc = `${baseUrl}${ent.headerImg}`;
-    const footerSrc = `${baseUrl}${ent.footerImg}`;
+    const headerSrc    = `${baseUrl}${ent.headerImg}`;
+    const footerSrc    = `${baseUrl}${ent.footerImg}`;
     const watermarkSrc = `${baseUrl}${ent.watermarkImg}`;
+    const stampSrc     = `${baseUrl}${ent.stampImg}`;
 
     win.document.write(`<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
 <title>${ent.name} — Reformatted Document</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700&family=Source+Serif+Pro:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   @page { size: A4; margin: 0; }
-  body { margin: 0; font-family: -apple-system, Arial, sans-serif; color: #1a1a1a; background: #e5e7eb; }
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, Arial, sans-serif;
+    color: #1a1a1a;
+    background: #e5e7eb;
+  }
   .a4 {
     width: 210mm; min-height: 297mm;
     margin: 0 auto; position: relative;
@@ -177,26 +185,132 @@ export function DocumentsTab() {
   .lh-watermark {
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    width: 140mm; opacity: 0.10;
+    width: 140mm; opacity: 0.07;
     pointer-events: none;
   }
   .lh-content {
-    padding: 55mm 18mm 35mm 18mm;
+    padding: 50mm 18mm 35mm 18mm;
     position: relative; z-index: 2;
-    font-size: 11pt; line-height: 1.5;
+    font-size: 9.5pt;
+    line-height: 1.35;
   }
-  .lh-content h1, .lh-content h2, .lh-content h3 { color: #0077A3; }
-  .lh-content table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  .lh-content th, .lh-content td {
-    border: 1px solid #d1d5db; padding: 6px 10px; text-align: left;
+
+  /* ─── STYLE A — PHARMA CLASSIC ─────────────────────────────────────── */
+  .lh-content h1,
+  .lh-content h2,
+  .lh-content h3,
+  .lh-content .doc-title {
+    font-family: 'Source Serif Pro', Georgia, serif;
+    color: #0A2540;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: -0.005em;
   }
-  .lh-content th { background: #f9fafb; }
+  .lh-content .doc-title,
+  .lh-content > h1:first-child,
+  .lh-content > h2:first-child {
+    font-size: 16pt;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .lh-content h2 { font-size: 14pt; margin: 12px 0 6px; }
+  .lh-content h3 { font-size: 11pt; margin: 8px 0 4px; }
+
+  .lh-content .doc-ref,
+  .lh-content > p:first-of-type {
+    text-align: center;
+    font-size: 8.5pt;
+    color: #555;
+    margin-bottom: 14px;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 0.5px;
+  }
+
+  /* Section bands — Claude is instructed to emit h2.section */
+  .lh-content h2.section,
+  .lh-content .section {
+    font-family: 'Inter Tight', sans-serif;
+    font-size: 10pt;
+    font-weight: 600;
+    background: #F0F4F8;
+    color: #0A2540;
+    padding: 4px 10px;
+    margin: 12px 0 6px;
+    border-left: 3px solid #0A2540;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+
+  /* Tables */
+  .lh-content table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin: 6px 0 10px;
+  }
+  .lh-content th {
+    background: #0A2540;
+    color: white;
+    padding: 5px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-family: 'Inter Tight', sans-serif;
+    font-size: 8pt;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    border: 1px solid #0A2540;
+  }
+  .lh-content td {
+    padding: 4px 8px;
+    border: 1px solid #D5DCE2;
+    vertical-align: top;
+  }
+  .lh-content tbody tr:nth-child(even) td { background: #F9FAFB; }
+
+  /* Emphasis */
+  .lh-content strong, .lh-content b { font-weight: 600; color: #0A2540; }
+  .lh-content em { font-style: italic; color: #555; }
+  .lh-content p { margin: 6px 0; }
+
+  /* Conclusion / approval callout */
+  .lh-content .conclusion,
+  .lh-content blockquote {
+    margin: 10px 0;
+    padding: 8px 12px;
+    background: #ECFDF5;
+    border-left: 3px solid #059669;
+    font-size: 9pt;
+    font-style: normal;
+  }
+
+  /* Lists */
+  .lh-content ul, .lh-content ol {
+    margin: 6px 0;
+    padding-left: 20px;
+    font-size: 9pt;
+  }
+  .lh-content li { margin: 2px 0; }
+
+  /* Stamp placement */
   .stamp-placeholder {
-    margin-top: 30px; padding: 14px; border: 2px dashed #0099CC;
-    border-radius: 8px; text-align: center; color: #0077A3;
-    font-style: italic; font-size: 10pt;
+    display: block;
+    height: 110px;
+    margin-top: 24px;
+    position: relative;
   }
-  .stamp-placeholder::before { content: "[ Company Stamp & Authorized Signature ]"; }
+  .stamp-placeholder::before {
+    content: "";
+    position: absolute;
+    right: 0; top: 0;
+    width: 230px; height: 130px;
+    background-image: url('${stampSrc}');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: right center;
+    opacity: 0.85;
+    transform: rotate(-3deg);
+  }
+
   @media print {
     body { background: white; }
     .a4 { box-shadow: none; }
@@ -209,7 +323,7 @@ export function DocumentsTab() {
   <div class="lh-content">${bodyHtml}</div>
   <div class="lh-footer"><img src="${footerSrc}"></div>
 </div>
-<script>setTimeout(() => window.print(), 1000);<\/script>
+<script>setTimeout(() => window.print(), 1200);<\/script>
 </body></html>`);
     win.document.close();
   }
