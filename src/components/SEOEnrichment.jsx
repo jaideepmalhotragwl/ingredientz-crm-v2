@@ -11,7 +11,7 @@ async function enrichBatch(products) {
 For each product return ONLY a JSON array — no markdown, no preamble.
 
 Rules:
-- 120-180 words per description
+- 80-120 words per description
 - Start with what the ingredient IS and where it comes from
 - Include key benefits and applications for supplement manufacturers
 - Mention quality indicators (purity %, extraction method, grade) where relevant
@@ -38,7 +38,7 @@ short_description = 1 sentence, max 25 words, used as meta description opener.`;
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
+      max_tokens: 4000,
       messages: [{ role: "user", content: prompt }]
     })
   });
@@ -89,7 +89,7 @@ export function SEOEnrichment({ onDone }) {
     setTotal(products.length);
     addLog(`Found ${products.length} products to enrich. Starting…`, "success");
 
-    const BATCH_SIZE = 8;
+    const BATCH_SIZE = 5;
     let done = 0;
     let fails = 0;
 
