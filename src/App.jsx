@@ -3,7 +3,6 @@ import { supabase } from "./config.js";
 import { C, STAGES } from "./constants.js";
 import { dbGet, dbInsert, dbUpdate, dbDelete, sendEmail, getSenderEmail, buildEmailHtml, daysUntil } from "./utils.js";
 import { LOGO, QUOTATION_TEMPLATE } from "./templates.js";
-
 import { Dashboard }       from "./components/Dashboard.jsx";
 import { EnquiriesTab }    from "./components/EnquiriesTab.jsx";
 import { RemindersTab }    from "./components/RemindersTab.jsx";
@@ -14,7 +13,7 @@ import { SuppliersTab }    from "./components/SuppliersTab.jsx";
 import { UsersTab }        from "./components/UsersTab.jsx";
 import { DocumentsTab }    from "./components/DocumentsTab.jsx";
 import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
-
+import { ContentEngine }   from "./components/ContentEngine.jsx";
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [loading, setLoading]       = useState(true);
@@ -27,12 +26,10 @@ export default function App() {
   const [threads, setThreads]       = useState([]);
   const [activeTab, setActiveTab]   = useState("dashboard");
   const [selectedEnq, setSelectedEnq] = useState(null);
-
   function showToast(msg, err = false) {
     setToast({ msg, err });
     setTimeout(() => setToast(null), 3000);
   }
-
   useEffect(() => {
     Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
@@ -42,7 +39,6 @@ export default function App() {
       setTasks(tsks); setQuotations(quots); setThreads(thrs);
     }).finally(() => setLoading(false));
   }, []);
-
   // ── Enquiry ops ──────────────────────────────────────────────────────────────
   async function addEnquiry(row) {
     const data = await dbInsert("enquiries", row);
@@ -67,20 +63,17 @@ export default function App() {
       }
     }
   }
-
   async function updateEnquiry(id, row) {
     await dbUpdate("enquiries", id, row);
     setEnquiries(p => p.map(e => e.id === id ? { ...e, ...row } : e));
     if (selectedEnq?.id === id) setSelectedEnq(s => ({ ...s, ...row }));
     showToast("✓ Enquiry updated");
   }
-
   async function deleteEnquiry(id) {
     await dbDelete("enquiries", id);
     setEnquiries(p => p.filter(e => e.id !== id));
     if (selectedEnq?.id === id) setSelectedEnq(null);
   }
-
   async function stageChange(id, stage) {
     await dbUpdate("enquiries", id, { stage });
     setEnquiries(p => p.map(e => e.id === id ? { ...e, stage } : e));
@@ -103,7 +96,6 @@ export default function App() {
       }
     }
   }
-
   // ── Task ops ─────────────────────────────────────────────────────────────────
   async function addTask(row) {
     const data = await dbInsert("tasks", row);
@@ -126,27 +118,22 @@ export default function App() {
       }
     }
   }
-
   async function updateTask(id, row) {
     await dbUpdate("tasks", id, row);
     setTasks(p => p.map(t => t.id === id ? { ...t, ...row } : t));
   }
-
   async function deleteTask(id) {
     await dbDelete("tasks", id);
     setTasks(p => p.filter(t => t.id !== id));
   }
-
   // ── Customer ops ─────────────────────────────────────────────────────────────
   async function addCustomer(row)    { const data = await dbInsert("customers", row); if (data) { setCustomers(p => [data, ...p]); showToast(`✓ ${row.company} added`); } }
   async function updateCustomer(id, row) { await dbUpdate("customers", id, row); setCustomers(p => p.map(c => c.id === id ? { ...c, ...row } : c)); }
   async function deleteCustomer(id)  { await dbDelete("customers", id); setCustomers(p => p.filter(c => c.id !== id)); }
-
   // ── User ops ─────────────────────────────────────────────────────────────────
   async function addUser(row)    { const data = await dbInsert("users", row); if (data) { setUsers(p => [data, ...p]); showToast(`✓ ${row.name} added`); } }
   async function updateUser(id, row) { await dbUpdate("users", id, row); setUsers(p => p.map(u => u.id === id ? { ...u, ...row } : u)); }
   async function deleteUser(id)  { await dbDelete("users", id); setUsers(p => p.filter(u => u.id !== id)); }
-
   // ── Quotation ops ─────────────────────────────────────────────────────────────
   async function saveQuotation(row) {
     const data = await dbInsert("quotations", row);
@@ -156,7 +143,6 @@ export default function App() {
       await stageChange(row.enquiry_id, "Quotation Sent");
     }
   }
-
   async function sendQuotationEmail(enq, form, grandTotal, users, attachments) {
     const sender = getSenderEmail(enq.assigned_to, users);
     const custEmail = customers.find(c => c.id === enq.customer_id)?.email || "";
@@ -168,7 +154,6 @@ export default function App() {
     if (custEmail) {
       const res = await sendEmail(emailPayload);
       showToast(res?.id ? `✓ Quotation sent to ${custEmail}` : `✓ Quotation logged (check customer email)`);
-      // Schedule follow-up sequence: day 3, 7, 14
       await scheduleSequence(enq, "quotation", custEmail, sender, [3, 7, 14]);
     } else {
       showToast("⚠ No customer email — quotation logged only");
@@ -177,19 +162,14 @@ export default function App() {
     const data = await dbInsert("email_threads", threadRow);
     if (data) setThreads(p => [data, ...p]);
   }
-
-  // Schedule a follow-up sequence (cancel any existing pending ones first)
   async function scheduleSequence(enq, type, toEmail, fromEmail, delayDays) {
     try {
-      // Cancel any existing pending sequences for this enquiry+type
       await supabase.from("email_sequences")
         .update({ cancelled_at: new Date().toISOString() })
         .eq("enquiry_id", enq.id)
         .eq("sequence_type", type)
         .is("sent_at", null)
         .is("cancelled_at", null);
-
-      // Insert new sequence steps
       const now = new Date();
       const rows = delayDays.map((days, idx) => {
         const sendAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
@@ -210,12 +190,10 @@ export default function App() {
       console.error("scheduleSequence error:", e);
     }
   }
-
   async function logEmail(row) {
     const data = await dbInsert("email_threads", row);
     if (data) { setThreads(p => [data, ...p]); showToast("✓ Email logged"); }
   }
-
   async function handleRefresh() {
     setLoading(true);
     const [enqs, custs, usrs, tsks, quots, thrs] = await Promise.all([
@@ -227,14 +205,12 @@ export default function App() {
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
-
   // ── Nav ──────────────────────────────────────────────────────────────────────
   const overdueTaskCount = tasks.filter(t => t.status !== "Done" && t.due_date && daysUntil(t.due_date) < 0).length;
   const overdueReminderCount = enquiries.filter(e => {
     const d = daysUntil(e.reminder_date);
     return d !== null && d <= 0 && !["PO Received", "Lost"].includes(e.stage);
   }).length;
-
   const TABS = [
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: overdueTaskCount > 0 ? overdueTaskCount : 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
@@ -244,9 +220,9 @@ export default function App() {
     { id: "categories", label: "Categories", icon: "📂", badge: 0 },
     { id: "suppliers",  label: "Suppliers",  icon: "🏭", badge: 0 },
     { id: "documents",  label: "Documents",  icon: "📄", badge: 0 },
+    { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
   ];
-
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Arial,sans-serif" }}>
       {toast && (
@@ -254,7 +230,6 @@ export default function App() {
           {toast.msg}
         </div>
       )}
-
       {loading && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(24,119,242,0.96)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 14 }}>
           <img src={LOGO} alt="Ingredientz" style={{ height: 50, objectFit: "contain", background: "white", borderRadius: 8, padding: "6px 16px" }} />
@@ -264,7 +239,6 @@ export default function App() {
           </div>
         </div>
       )}
-
       {/* Sidebar */}
       <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 215, background: "#1877F2", borderRight: "1px solid rgba(255,255,255,0.1)", zIndex: 10, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
@@ -278,7 +252,7 @@ export default function App() {
             <button onClick={handleRefresh} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 6, padding: "2px 8px", cursor: "pointer", color: "white", fontSize: 11 }}>↻</button>
           </div>
         </div>
-        <nav style={{ padding: "12px 10px", flex: 1 }}>
+        <nav style={{ padding: "12px 10px", flex: 1, overflowY: "auto" }}>
           {TABS.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               width: "100%", textAlign: "left",
@@ -307,7 +281,6 @@ export default function App() {
           ))}
         </div>
       </div>
-
       {/* Main content */}
       <div style={{ marginLeft: 215, padding: "24px 28px" }}>
         <div style={{ marginBottom: 22 }}>
@@ -318,7 +291,6 @@ export default function App() {
             {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </div>
         </div>
-
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
@@ -327,9 +299,9 @@ export default function App() {
         {activeTab === "categories" && <CategoriesTab />}
         {activeTab === "suppliers"  && <SuppliersTab />}
         {activeTab === "documents"  && <DocumentsTab />}
+        {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
-
       <EnquiryDrawer
         enq={selectedEnq}
         onClose={() => setSelectedEnq(null)}
@@ -344,7 +316,6 @@ export default function App() {
         onLogEmail={logEmail}
         onThreadInserted={row => setThreads(p => [row, ...p])}
       />
-
       <style>{`
         *{box-sizing:border-box;}
         ::-webkit-scrollbar{width:5px;height:5px;}
