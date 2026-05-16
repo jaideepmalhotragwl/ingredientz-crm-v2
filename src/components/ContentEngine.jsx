@@ -2,99 +2,119 @@ import { useState, useEffect } from "react";
 import { supabase } from "../config.js";
 import { C } from "../constants.js";
 
-const CLAUDE_PROXY = "https://eytoryygkxjslfvsqanl.supabase.co/functions/v1/claude-proxy";
+const PROXY = "https://eytoryygkxjslfvsqanl.supabase.co/functions/v1/claude-proxy";
 
 const THEMES = [
-  { id: "buyers_guide", label: "📋 Buyer's Guide", desc: "Complete sourcing guide for B2B buyers" },
-  { id: "science", label: "🔬 Science & Benefits", desc: "Deep-dive into research and mechanisms" },
-  { id: "sourcing", label: "🌍 Wholesale Sourcing", desc: "How to source, what to check, pricing" },
-  { id: "market_trends", label: "📈 Market Trends 2026", desc: "Industry trends and market outlook" },
-  { id: "formulation", label: "⚗️ Formulation Tips", desc: "How to use in supplement formulations" },
-  { id: "supplier", label: "🏭 Supplier Guide", desc: "Choosing a reliable supplier" },
+  { id:"buyers_guide",  label:"📋 Buyer's Guide",      desc:"Complete sourcing guide for B2B buyers" },
+  { id:"science",       label:"🔬 Science & Benefits",  desc:"Deep-dive into research and mechanisms" },
+  { id:"sourcing",      label:"🌍 Wholesale Sourcing",  desc:"How to source, what to check, pricing" },
+  { id:"market_trends", label:"📈 Market Trends 2026",  desc:"Industry trends and market outlook" },
+  { id:"formulation",   label:"⚗️ Formulation Tips",   desc:"How to use in supplement formulations" },
+  { id:"supplier",      label:"🏭 Supplier Guide",      desc:"Choosing a reliable supplier" },
 ];
 
-const SOCIAL_PLATFORMS = ["linkedin", "whatsapp", "twitter"];
-
-function slugify(text) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+function slugify(t) {
+  return t.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,80);
 }
 
-async function callClaude(prompt, maxTokens = 4000) {
-  const res = await fetch(CLAUDE_PROXY, {
+// ── Split into 2 calls to avoid Edge Function timeout ──────────────────────
+async function callProxy(payload) {
+  const res = await fetch(PROXY, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content: prompt }]
-    })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Proxy error ${res.status}: ${errText.slice(0, 200)}`);
+    const t = await res.text();
+    throw new Error(`Proxy ${res.status}: ${t.slice(0,150)}`);
   }
   const data = await res.json();
-  if (data.error) throw new Error(`Claude error: ${data.error.message || JSON.stringify(data.error)}`);
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
   return data.content?.[0]?.text || "";
 }
 
-// ── ARTICLE GENERATOR ──────────────────────────────────────────────────────
-async function generateArticle({ productName, theme, trendingTopic, customKeyword }) {
-  const topic = trendingTopic || customKeyword || productName;
+async function generateArticle(productName, theme, customKeyword) {
+  const topic = customKeyword || productName;
   const themeLabel = THEMES.find(t => t.id === theme)?.label || theme;
 
-  const prompt = `Write a B2B nutraceutical blog article for Ingredientz (global ingredients platform).
-
+  // Call 1 — article content only (kept short for proxy timeout)
+  const articlePrompt = `Write a B2B nutraceutical blog article for Ingredientz (global ingredients B2B platform).
 Product: ${topic}
 Theme: ${themeLabel}
-${trendingTopic ? `Trending context: ${trendingTopic}` : ""}
-Audience: procurement managers and formulators in USA, UK, EU.
+Audience: procurement managers, formulators in USA, UK, EU.
 
-Return ONLY valid JSON (no markdown):
+Return ONLY valid JSON, no markdown:
 {
-  "title": "SEO title 50-60 chars",
-  "meta_description": "155 char meta with CTA",
+  "title": "SEO title 55 chars max",
+  "meta_description": "150 char meta",
   "excerpt": "2 sentence summary",
   "keywords": ["kw1","kw2","kw3","kw4","kw5"],
-  "content": "HTML article 700-900 words using h2,h3,p,ul,li,strong tags. Include intro, 3-4 sections, practical B2B advice, brief Ingredientz mention at end.",
-  "linkedin_post": "150 word LinkedIn post with 3 hashtags",
-  "whatsapp_message": "60 word WhatsApp message with [LINK]",
+  "content": "HTML 600-800 words. Use h2,h3,p,ul,li,strong. Intro + 3 sections + brief Ingredientz mention at end."
+}`;
+
+  const articleRaw = await callProxy({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2500,
+    messages: [{ role: "user", content: articlePrompt }]
+  });
+  const article = JSON.parse(articleRaw.replace(/```json|```/g,"").trim());
+
+  // Call 2 — social posts only (fast, separate call)
+  const socialPrompt = `Write social media posts for this nutraceutical article titled: "${article.title}"
+About: ${topic}
+
+Return ONLY valid JSON:
+{
+  "linkedin_post": "130 word professional LinkedIn post with 3 hashtags",
+  "whatsapp_message": "50 word WhatsApp message with [LINK]",
   "twitter_post": "200 char tweet with 2 hashtags and [LINK]"
 }`;
 
-  const raw = await callClaude(prompt, 3000);
-  const clean = raw.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean);
+  const socialRaw = await callProxy({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 800,
+    messages: [{ role: "user", content: socialPrompt }]
+  });
+  const social = JSON.parse(socialRaw.replace(/```json|```/g,"").trim());
+
+  return { ...article, ...social };
 }
 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────
-export function ContentEngine({ onDone }) {
-  const [tab, setTab] = useState("generate"); // generate | autopilot | posts
+export function ContentEngine() {
+  const [tab, setTab]               = useState("generate");
   const [productName, setProductName] = useState("");
-  const [theme, setTheme] = useState("buyers_guide");
+  const [theme, setTheme]           = useState("buyers_guide");
   const [customKeyword, setCustomKeyword] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [result, setResult] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [posts, setPosts] = useState([]);
-  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [genStep, setGenStep]       = useState(""); // "article" | "social" | ""
+  const [result, setResult]         = useState(null);
+  const [saving, setSaving]         = useState(false);
+  const [saved, setSaved]           = useState(false);
   const [selectedSites, setSelectedSites] = useState(["ingredientz"]);
-
-  function toggleSite(site) {
-    setSelectedSites(prev =>
-      prev.includes(site) ? prev.filter(s => s !== site) : [...prev, site]
-    );
-  }
-  const [copied, setCopied] = useState("");
+  const [activeSocial, setActiveSocial]   = useState("linkedin");
+  const [copied, setCopied]         = useState("");
+  const [posts, setPosts]           = useState([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [error, setError]           = useState("");
 
   useEffect(() => { if (tab === "posts") loadPosts(); }, [tab]);
 
   async function loadPosts() {
     setLoadingPosts(true);
-    const { data } = await supabase.from("blog_posts").select("id,title,slug,status,theme,product_name,source,created_at,excerpt").order("created_at", { ascending: false }).limit(50);
+    const { data } = await supabase
+      .from("blog_posts")
+      .select("id,title,slug,status,theme,product_name,source,site,created_at,excerpt")
+      .order("created_at", { ascending: false })
+      .limit(50);
     setPosts(data || []);
     setLoadingPosts(false);
+  }
+
+  function toggleSite(site) {
+    setSelectedSites(prev =>
+      prev.includes(site) ? prev.filter(s => s !== site) : [...prev, site]
+    );
   }
 
   async function generate() {
@@ -102,23 +122,27 @@ export function ContentEngine({ onDone }) {
     setGenerating(true);
     setResult(null);
     setSaved(false);
+    setError("");
     try {
-      const article = await generateArticle({ productName, theme, customKeyword });
+      setGenStep("article");
+      const article = await generateArticle(productName, theme, customKeyword);
+      setGenStep("social");
       setResult(article);
-    } catch (e) {
-      alert("Generation failed: " + e.message);
+    } catch(e) {
+      setError("Generation failed: " + e.message);
     } finally {
       setGenerating(false);
+      setGenStep("");
     }
   }
 
   async function savePost(status = "draft") {
     if (!result) return;
+    if (selectedSites.length === 0) { alert("Select at least one website."); return; }
     setSaving(true);
     try {
-      // Add timestamp to slug to prevent duplicates
       const slug = slugify(result.title) + "-" + Date.now();
-      const { error } = await supabase.from("blog_posts").insert({
+      const { error: err } = await supabase.from("blog_posts").insert({
         title: result.title,
         slug,
         meta_description: result.meta_description,
@@ -136,9 +160,9 @@ export function ContentEngine({ onDone }) {
         twitter_post: result.twitter_post,
         published_at: status === "published" ? new Date().toISOString() : null,
       });
-      if (error) throw new Error(error.message);
+      if (err) throw new Error(err.message);
       setSaved(true);
-    } catch (e) {
+    } catch(e) {
       alert("Save failed: " + e.message);
     } finally {
       setSaving(false);
@@ -160,164 +184,172 @@ export function ContentEngine({ onDone }) {
     loadPosts();
   }
 
-  function copyToClipboard(text, key) {
+  function copy(text, key) {
     navigator.clipboard.writeText(text);
     setCopied(key);
     setTimeout(() => setCopied(""), 2000);
   }
 
-  const TAB_STYLE = (active) => ({
-    padding: "8px 18px", borderRadius: 6, border: "none", fontSize: 12, fontWeight: 600,
+  const T = (active) => ({
+    padding: "7px 16px", borderRadius: 6, border: "none", fontSize: 12, fontWeight: 600,
     cursor: "pointer", background: active ? C.blue : C.bg, color: active ? "white" : C.muted
   });
 
+  const SITE_OPTIONS = [
+    { id: "ingredientz",   label: "🌐 Ingredientz.co" },
+    { id: "purecolostrum", label: "💧 PureColostrum.co" },
+  ];
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
 
       {/* Header */}
-      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 24 }}>📰</span>
+      <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:22 }}>📰</span>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Content Engine</div>
-            <div style={{ fontSize: 11, color: C.muted }}>AI-powered blog articles + social media content for ingredientz.co</div>
+            <div style={{ fontSize:14, fontWeight:700, color:C.ink }}>Content Engine</div>
+            <div style={{ fontSize:11, color:C.muted }}>AI articles · Auto-publish to ingredientz.co + purecolostrum.co</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {[["generate","✍️ Generate"],["posts","📋 All Posts"],["autopilot","🤖 Auto-Pilot"]].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} style={TAB_STYLE(tab === id)}>{label}</button>
+        <div style={{ display:"flex", gap:6 }}>
+          {[["generate","✍️ Generate"],["posts","📋 All Posts"],["autopilot","🤖 Auto-Pilot"]].map(([id,label])=>(
+            <button key={id} onClick={()=>setTab(id)} style={T(tab===id)}>{label}</button>
           ))}
         </div>
       </div>
 
       {/* ── GENERATE TAB ── */}
-      {tab === "generate" && (
-        <div style={{ display: "grid", gridTemplateColumns: result ? "380px 1fr" : "1fr", gap: 16 }}>
+      {tab==="generate" && (
+        <div style={{ display:"grid", gridTemplateColumns: result ? "360px 1fr" : "480px", gap:16, justifyContent: result ? "stretch" : "flex-start" }}>
 
           {/* Form */}
-          <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 16 }}>Generate Article</div>
+          <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:20, display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:C.ink }}>Generate Article</div>
 
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, letterSpacing: 0.5, display: "block", marginBottom: 5 }}>PRODUCT NAME</label>
-              <input value={productName} onChange={e => setProductName(e.target.value)}
-                placeholder="e.g. Ashwagandha Extract, Colostrum Powder…"
-                style={{ width: "100%", border: `1px solid ${C.border}`, borderRadius: 7, padding: "9px 12px", fontSize: 13, outline: "none" }}/>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:C.muted, display:"block", marginBottom:5 }}>PRODUCT NAME *</label>
+              <input value={productName} onChange={e=>setProductName(e.target.value)}
+                placeholder="e.g. Ashwagandha Extract, Shilajit…"
+                style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 12px", fontSize:13, outline:"none" }}/>
             </div>
 
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, letterSpacing: 0.5, display: "block", marginBottom: 5 }}>TRENDING KEYWORD (optional)</label>
-              <input value={customKeyword} onChange={e => setCustomKeyword(e.target.value)}
-                placeholder="e.g. colostrum powder immune health 2026…"
-                style={{ width: "100%", border: `1px solid ${C.border}`, borderRadius: 7, padding: "9px 12px", fontSize: 13, outline: "none" }}/>
-              <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>Paste a trending topic from Google Trends or News</div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:C.muted, display:"block", marginBottom:5 }}>TRENDING KEYWORD (optional)</label>
+              <input value={customKeyword} onChange={e=>setCustomKeyword(e.target.value)}
+                placeholder="Paste a trending topic from Google Trends…"
+                style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:7, padding:"9px 12px", fontSize:13, outline:"none" }}/>
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, letterSpacing: 0.5, display: "block", marginBottom: 8 }}>ARTICLE THEME</label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {THEMES.map(t => (
-                  <label key={t.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", padding: "8px 10px", borderRadius: 7, background: theme === t.id ? "#EEF4FF" : C.bg, border: `1px solid ${theme === t.id ? C.blue : C.border}` }}>
-                    <input type="radio" value={t.id} checked={theme === t.id} onChange={() => setTheme(t.id)} style={{ marginTop: 2 }}/>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:C.muted, display:"block", marginBottom:8 }}>ARTICLE THEME</label>
+              <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                {THEMES.map(t=>(
+                  <label key={t.id} style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"7px 10px", borderRadius:7, background:theme===t.id?"#EEF4FF":C.bg, border:`1px solid ${theme===t.id?C.blue:C.border}` }}>
+                    <input type="radio" value={t.id} checked={theme===t.id} onChange={()=>setTheme(t.id)}/>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: theme === t.id ? C.blue : C.ink }}>{t.label}</div>
-                      <div style={{ fontSize: 10, color: C.muted }}>{t.desc}</div>
+                      <div style={{ fontSize:12, fontWeight:600, color:theme===t.id?C.blue:C.ink }}>{t.label}</div>
+                      <div style={{ fontSize:10, color:C.muted }}>{t.desc}</div>
                     </div>
                   </label>
                 ))}
               </div>
             </div>
 
-            <button onClick={generate} disabled={generating || (!productName && !customKeyword)}
-              style={{ width: "100%", background: generating ? C.muted : C.blue, border: "none", color: "white", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 600, cursor: generating ? "not-allowed" : "pointer" }}>
-              {generating ? "✨ Generating article…" : "🚀 Generate Article"}
+            {error && <div style={{ background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:7, padding:"8px 12px", fontSize:12, color:"#DC2626" }}>{error}</div>}
+
+            <button onClick={generate} disabled={generating||(!productName&&!customKeyword)}
+              style={{ background:generating?C.muted:C.blue, border:"none", color:"white", borderRadius:8, padding:"11px", fontSize:13, fontWeight:600, cursor:generating?"not-allowed":"pointer" }}>
+              {generating
+                ? genStep==="article" ? "✨ Writing article…" : "✨ Generating social posts…"
+                : "🚀 Generate Article"}
             </button>
 
             {generating && (
-              <div style={{ marginTop: 12, textAlign: "center", fontSize: 11, color: C.muted }}>
-                Writing article + social media posts…<br/>usually takes 20-30 seconds
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:11, color:C.muted, marginBottom:6 }}>
+                  {genStep==="article" ? "Step 1/2 — Writing article (15-20s)…" : "Step 2/2 — Writing social posts…"}
+                </div>
+                <div style={{ background:C.bg, borderRadius:4, height:4, overflow:"hidden" }}>
+                  <div style={{ height:"100%", background:C.blue, borderRadius:4, width:genStep==="article"?"50%":"90%", transition:"width 0.5s" }}/>
+                </div>
               </div>
             )}
           </div>
 
           {/* Result */}
           {result && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
 
-              {/* Title + meta */}
-              <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Generated Article</div>
-                <div style={{ fontFamily: "Georgia, serif", fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 6, lineHeight: 1.3 }}>{result.title}</div>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 10, lineHeight: 1.6 }}>{result.meta_description}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-                  {result.keywords?.map(k => (
-                    <span key={k} style={{ background: "#EEF4FF", border: `1px solid ${C.blue}20`, color: C.blue, borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 500 }}>{k}</span>
+              {/* Article preview */}
+              <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:20 }}>
+                <div style={{ fontSize:10, fontWeight:700, color:C.muted, letterSpacing:1, textTransform:"uppercase", marginBottom:8 }}>Generated Article</div>
+                <div style={{ fontFamily:"Georgia,serif", fontSize:19, fontWeight:700, color:C.ink, marginBottom:6, lineHeight:1.3 }}>{result.title}</div>
+                <div style={{ fontSize:12, color:C.muted, marginBottom:10, lineHeight:1.6 }}>{result.meta_description}</div>
+                <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:14 }}>
+                  {result.keywords?.map(k=>(
+                    <span key={k} style={{ background:"#EEF4FF", border:`1px solid ${C.blue}30`, color:C.blue, borderRadius:4, padding:"2px 8px", fontSize:10 }}>{k}</span>
                   ))}
                 </div>
-                {/* Article preview */}
-                <div style={{ background: C.bg, borderRadius: 8, padding: 16, maxHeight: 320, overflowY: "auto", fontSize: 12, color: C.ink, lineHeight: 1.8 }}
-                  dangerouslySetInnerHTML={{ __html: result.content }}/>
+                <div style={{ background:C.bg, borderRadius:8, padding:14, maxHeight:300, overflowY:"auto", fontSize:12, lineHeight:1.8 }}
+                  dangerouslySetInnerHTML={{ __html:result.content }}/>
               </div>
 
               {/* Social media */}
-              <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Social Media Pack</div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                  {[["linkedin","💼 LinkedIn"],["whatsapp","📱 WhatsApp"],["twitter","🐦 Twitter/X"]].map(([id, label]) => (
-                    <button key={id} onClick={() => setActiveSocial(id)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${activeSocial === id ? C.blue : C.border}`, background: activeSocial === id ? "#EEF4FF" : C.bg, color: activeSocial === id ? C.blue : C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+              <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:20 }}>
+                <div style={{ fontSize:10, fontWeight:700, color:C.muted, letterSpacing:1, textTransform:"uppercase", marginBottom:10 }}>Social Media Pack</div>
+                <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+                  {[["linkedin","💼 LinkedIn"],["whatsapp","📱 WhatsApp"],["twitter","🐦 Twitter/X"]].map(([id,label])=>(
+                    <button key={id} onClick={()=>setActiveSocial(id)} style={{ padding:"5px 12px", borderRadius:6, border:`1px solid ${activeSocial===id?C.blue:C.border}`, background:activeSocial===id?"#EEF4FF":C.bg, color:activeSocial===id?C.blue:C.muted, fontSize:11, fontWeight:600, cursor:"pointer" }}>
                       {label}
                     </button>
                   ))}
                 </div>
-                <div style={{ background: C.bg, borderRadius: 8, padding: 14, fontSize: 12, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", marginBottom: 10 }}>
-                  {activeSocial === "linkedin" && result.linkedin_post}
-                  {activeSocial === "whatsapp" && result.whatsapp_message}
-                  {activeSocial === "twitter" && result.twitter_post}
+                <div style={{ background:C.bg, borderRadius:8, padding:12, fontSize:12, lineHeight:1.7, whiteSpace:"pre-wrap", marginBottom:8, minHeight:80 }}>
+                  {activeSocial==="linkedin"&&result.linkedin_post}
+                  {activeSocial==="whatsapp"&&result.whatsapp_message}
+                  {activeSocial==="twitter"&&result.twitter_post}
                 </div>
-                <button onClick={() => copyToClipboard(
-                  activeSocial === "linkedin" ? result.linkedin_post :
-                  activeSocial === "whatsapp" ? result.whatsapp_message : result.twitter_post,
-                  activeSocial
-                )} style={{ background: copied === activeSocial ? C.green : C.bg, border: `1px solid ${C.border}`, color: copied === activeSocial ? "white" : C.muted, borderRadius: 6, padding: "6px 14px", fontSize: 11, cursor: "pointer" }}>
-                  {copied === activeSocial ? "✓ Copied!" : "📋 Copy"}
+                <button onClick={()=>copy(activeSocial==="linkedin"?result.linkedin_post:activeSocial==="whatsapp"?result.whatsapp_message:result.twitter_post, activeSocial)}
+                  style={{ background:copied===activeSocial?"#10B981":C.bg, border:`1px solid ${C.border}`, color:copied===activeSocial?"white":C.muted, borderRadius:6, padding:"5px 14px", fontSize:11, cursor:"pointer" }}>
+                  {copied===activeSocial?"✓ Copied!":"📋 Copy"}
                 </button>
               </div>
 
-              {/* Save actions */}
+              {/* Publish */}
               {!saved ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {/* Site selector */}
-                  <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.5, marginBottom: 10 }}>PUBLISH TO</div>
-                    <div style={{ display: "flex", gap: 10 }}>
-                      {[
-                        ["ingredientz", "🌐 Ingredientz.co"],
-                        ["purecolostrum", "💧 PureColostrum.co"],
-                      ].map(([site, label]) => (
-                        <label key={site} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: `1px solid ${selectedSites.includes(site) ? C.blue : C.border}`, background: selectedSites.includes(site) ? "#EEF4FF" : "white", flex: 1, justifyContent: "center" }}>
-                          <input type="checkbox" checked={selectedSites.includes(site)} onChange={() => toggleSite(site)} style={{ accentColor: C.blue }}/>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: selectedSites.includes(site) ? C.blue : C.muted }}>{label}</span>
-                        </label>
-                      ))}
-                    </div>
+                <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:20 }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:C.muted, letterSpacing:1, textTransform:"uppercase", marginBottom:12 }}>PUBLISH TO</div>
+                  <div style={{ display:"flex", gap:10, marginBottom:14 }}>
+                    {SITE_OPTIONS.map(({id,label})=>(
+                      <label key={id} onClick={()=>toggleSite(id)}
+                        style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"10px 16px", borderRadius:8, border:`2px solid ${selectedSites.includes(id)?C.blue:C.border}`, background:selectedSites.includes(id)?"#EEF4FF":"white", flex:1, justifyContent:"center" }}>
+                        <input type="checkbox" checked={selectedSites.includes(id)} onChange={()=>{}} style={{ accentColor:C.blue }}/>
+                        <span style={{ fontSize:12, fontWeight:700, color:selectedSites.includes(id)?C.blue:C.muted }}>{label}</span>
+                      </label>
+                    ))}
                   </div>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button onClick={() => savePost("published")} disabled={saving}
-                      style={{ flex: 1, background: C.blue, border: "none", color: "white", borderRadius: 8, padding: "11px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                      {saving ? "Saving…" : "🌐 Publish Now"}
+                  <div style={{ display:"flex", gap:10 }}>
+                    <button onClick={()=>savePost("published")} disabled={saving||selectedSites.length===0}
+                      style={{ flex:1, background:C.blue, border:"none", color:"white", borderRadius:8, padding:"11px", fontSize:13, fontWeight:600, cursor:"pointer" }}>
+                      {saving?"Saving…":"🌐 Publish Now"}
                     </button>
-                    <button onClick={() => savePost("draft")} disabled={saving}
-                      style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, color: C.ink, borderRadius: 8, padding: "11px", fontSize: 13, cursor: "pointer" }}>
+                    <button onClick={()=>savePost("draft")} disabled={saving}
+                      style={{ flex:1, background:C.bg, border:`1px solid ${C.border}`, color:C.ink, borderRadius:8, padding:"11px", fontSize:13, cursor:"pointer" }}>
                       💾 Save as Draft
                     </button>
                   </div>
                 </div>
               ) : (
-                <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: 14, textAlign: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#166534", marginBottom: 4 }}>✅ Article saved!</div>
-                  <div style={{ fontSize: 11, color: "#15803d" }}>
-                    Published to: {selectedSites.map(s => s === "ingredientz" ? "ingredientz.co/blog" : "purecolostrum.co/blog").join(" + ")}
+                <div style={{ background:"#F0FDF4", border:"1px solid #BBF7D0", borderRadius:12, padding:18, textAlign:"center" }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:"#166534", marginBottom:4 }}>✅ Article saved!</div>
+                  <div style={{ fontSize:12, color:"#15803d" }}>
+                    Published to: {selectedSites.map(s=>s==="ingredientz"?"ingredientz.co/blog":"purecolostrum.co/blog").join(" + ")}
                   </div>
+                  <button onClick={()=>{ setResult(null); setSaved(false); setProductName(""); setCustomKeyword(""); setSelectedSites(["ingredientz"]); }}
+                    style={{ marginTop:12, background:"none", border:`1px solid #BBF7D0`, color:"#166534", borderRadius:6, padding:"6px 16px", fontSize:12, cursor:"pointer" }}>
+                    + Generate Another
+                  </button>
                 </div>
               )}
             </div>
@@ -326,40 +358,47 @@ export function ContentEngine({ onDone }) {
       )}
 
       {/* ── ALL POSTS TAB ── */}
-      {tab === "posts" && (
-        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>All Articles ({posts.length})</div>
-            <button onClick={() => setTab("generate")} style={{ background: C.blue, border: "none", color: "white", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>+ New Article</button>
+      {tab==="posts" && (
+        <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:20 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:C.ink }}>All Articles ({posts.length})</div>
+            <button onClick={()=>setTab("generate")} style={{ background:C.blue, border:"none", color:"white", borderRadius:6, padding:"7px 16px", fontSize:12, fontWeight:600, cursor:"pointer" }}>+ New Article</button>
           </div>
-          {loadingPosts ? (
-            <div style={{ textAlign: "center", padding: 40, color: C.muted }}>Loading…</div>
-          ) : posts.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 40, color: C.muted }}>
-              <div style={{ fontSize: 32, marginBottom: 10 }}>📝</div>
+          {loadingPosts?(
+            <div style={{ textAlign:"center", padding:40, color:C.muted }}>Loading…</div>
+          ):posts.length===0?(
+            <div style={{ textAlign:"center", padding:40, color:C.muted }}>
+              <div style={{ fontSize:32, marginBottom:10 }}>📝</div>
               <div>No articles yet. Generate your first one!</div>
             </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {posts.map(p => (
-                <div key={p.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 2 }}>{p.title}</div>
-                    <div style={{ fontSize: 11, color: C.muted }}>{p.product_name} · {THEMES.find(t => t.id === p.theme)?.label || p.theme} · {new Date(p.created_at).toLocaleDateString()}</div>
-                    {p.excerpt && <div style={{ fontSize: 11, color: C.muted, marginTop: 3, fontStyle: "italic" }}>{p.excerpt.slice(0, 100)}…</div>}
+          ):(
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {posts.map(p=>(
+                <div key={p.id} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+                  <div style={{ flex:1, minWidth:200 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:C.ink, marginBottom:2 }}>{p.title}</div>
+                    <div style={{ fontSize:11, color:C.muted }}>
+                      {p.product_name} · {THEMES.find(t=>t.id===p.theme)?.label||p.theme} · {new Date(p.created_at).toLocaleDateString()}
+                    </div>
+                    {p.site&&(
+                      <div style={{ display:"flex", gap:4, marginTop:4 }}>
+                        {p.site.map(s=>(
+                          <span key={s} style={{ background:s==="ingredientz"?"#EEF4FF":"#e7f0fd", color:C.blue, border:`1px solid ${C.blue}30`, borderRadius:20, padding:"1px 8px", fontSize:9, fontWeight:600 }}>
+                            {s==="ingredientz"?"🌐 Ingredientz":"💧 PureColostrum"}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ background: p.status === "published" ? "#DCFCE7" : "#FEF9C3", color: p.status === "published" ? "#166534" : "#854D0E", border: `1px solid ${p.status === "published" ? "#BBF7D0" : "#FDE68A"}`, borderRadius: 20, padding: "2px 10px", fontSize: 10, fontWeight: 600 }}>
-                      {p.status === "published" ? "✓ Published" : "Draft"}
+                  <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
+                    <span style={{ background:p.status==="published"?"#DCFCE7":"#FEF9C3", color:p.status==="published"?"#166534":"#854D0E", border:`1px solid ${p.status==="published"?"#BBF7D0":"#FDE68A"}`, borderRadius:20, padding:"2px 10px", fontSize:10, fontWeight:600 }}>
+                      {p.status==="published"?"✓ Published":"Draft"}
                     </span>
-                    <span style={{ background: p.source === "autopilot" ? "#EDE9FE" : "#E0F2FE", color: p.source === "autopilot" ? "#6D28D9" : "#0369A1", borderRadius: 20, padding: "2px 8px", fontSize: 9, fontWeight: 600 }}>
-                      {p.source === "autopilot" ? "🤖 Auto" : "✍️ Manual"}
-                    </span>
-                    <button onClick={() => toggleStatus(p)} style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.muted, borderRadius: 5, padding: "4px 10px", fontSize: 10, cursor: "pointer" }}>
-                      {p.status === "published" ? "Unpublish" : "Publish"}
+                    <button onClick={()=>toggleStatus(p)} style={{ background:C.bg, border:`1px solid ${C.border}`, color:C.muted, borderRadius:5, padding:"4px 10px", fontSize:10, cursor:"pointer" }}>
+                      {p.status==="published"?"Unpublish":"Publish"}
                     </button>
-                    <a href={`https://www.ingredientz.co/blog/${p.slug}`} target="_blank" style={{ background: "#EEF4FF", border: "none", color: C.blue, borderRadius: 5, padding: "4px 10px", fontSize: 10, cursor: "pointer", textDecoration: "none" }}>View</a>
-                    <button onClick={() => deletePost(p.id)} style={{ background: "#FEF2F2", border: "none", color: "#EF4444", borderRadius: 5, padding: "4px 10px", fontSize: 10, cursor: "pointer" }}>Delete</button>
+                    <a href={`https://www.ingredientz.co/blog/${p.slug}`} target="_blank" style={{ background:"#EEF4FF", border:"none", color:C.blue, borderRadius:5, padding:"4px 10px", fontSize:10, cursor:"pointer", textDecoration:"none" }}>View</a>
+                    <button onClick={()=>deletePost(p.id)} style={{ background:"#FEF2F2", border:"none", color:"#EF4444", borderRadius:5, padding:"4px 10px", fontSize:10, cursor:"pointer" }}>Delete</button>
                   </div>
                 </div>
               ))}
@@ -369,178 +408,108 @@ export function ContentEngine({ onDone }) {
       )}
 
       {/* ── AUTOPILOT TAB ── */}
-      {tab === "autopilot" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 6 }}>🤖 Auto-Pilot Mode</div>
-            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.8, marginBottom: 20 }}>
-              Set up Google Apps Script to automatically generate and save blog articles every week — even when no one from the team generates one manually.
+      {tab==="autopilot" && (
+        <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:24 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:C.ink, marginBottom:6 }}>🤖 Auto-Pilot Mode</div>
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.8, marginBottom:20 }}>
+            Google Apps Script runs every Monday 8AM IST. If no article was published in 7 days, it auto-generates one from trending nutraceutical news and emails you.
+          </div>
+          <div style={{ background:"#F0FDF4", border:"1px solid #BBF7D0", borderRadius:8, padding:14, marginBottom:16 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:"#166534", marginBottom:4 }}>📋 Setup — 5 minutes</div>
+            <div style={{ fontSize:11, color:"#15803d", lineHeight:1.8 }}>
+              1. Go to <strong>script.google.com</strong> → New project<br/>
+              2. Paste the code below<br/>
+              3. Replace YOUR_EMAIL with your email<br/>
+              4. Click Run once → authorize<br/>
+              5. Triggers → Add trigger → weeklyAutopilot → Week timer → Monday → 8AM
             </div>
-
-            {[
-              ["How it works", [
-                "Every Monday at 8AM IST, the script runs automatically",
-                "Checks if any article was published in the last 7 days",
-                "If not — fetches trending nutraceutical topics from Google News RSS",
-                "Picks the most relevant topic for your business",
-                "Calls Claude via your Supabase proxy to generate a full article",
-                "Saves as draft to blog_posts table",
-                "Emails you: 'New article ready for review'",
-              ]],
-              ["What you need", [
-                "Google account (for Apps Script)",
-                "Your Supabase anon key (already in your CRM)",
-                "Your email address for notifications",
-                "5 minutes to set up — runs forever after",
-              ]],
-            ].map(([title, items]) => (
-              <div key={title} style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 8 }}>{title}</div>
-                {items.map((item, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 12, color: C.muted }}>
-                    <span style={{ color: C.blue, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>{item}
-                  </div>
-                ))}
-              </div>
-            ))}
-
-            <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#166534", marginBottom: 4 }}>📋 Setup Instructions</div>
-              <div style={{ fontSize: 11, color: "#15803d", lineHeight: 1.7 }}>
-                1. Go to <strong>script.google.com</strong> → New project<br/>
-                2. Paste the Apps Script code below<br/>
-                3. Replace YOUR_EMAIL with your email<br/>
-                4. Run once manually to authorize<br/>
-                5. Set trigger: Time-driven → Week timer → Monday → 8AM IST
-              </div>
-            </div>
-
-            <div style={{ background: "#0D1F3C", borderRadius: 8, padding: 16, marginBottom: 12 }}>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>GOOGLE APPS SCRIPT — AUTOPILOT</div>
-              <pre style={{ fontSize: 10, color: "#2dd4bf", fontFamily: "monospace", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{`const SUPABASE_URL = "https://eytoryygkxjslfvsqanl.supabase.co";
+          </div>
+          <div style={{ background:"#0D1F3C", borderRadius:8, padding:16, marginBottom:12, maxHeight:400, overflowY:"auto" }}>
+            <div style={{ fontSize:10, color:"rgba(255,255,255,0.4)", fontWeight:700, letterSpacing:1, marginBottom:8 }}>GOOGLE APPS SCRIPT</div>
+            <pre style={{ fontSize:10, color:"#2dd4bf", fontFamily:"monospace", whiteSpace:"pre-wrap", lineHeight:1.6 }}>{`const SUPABASE_URL = "https://eytoryygkxjslfvsqanl.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dG9yeXlna3hqc2xmdnNxYW5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NDA5MTUsImV4cCI6MjA5MDMxNjkxNX0.txYTl0Q06mKSfWGmWc8cOTmCN46tLcxF9_7RhBUHBRY";
 const NOTIFY_EMAIL = "YOUR_EMAIL@gmail.com";
-const CLAUDE_PROXY = SUPABASE_URL + "/functions/v1/claude-proxy";
+const PROXY = SUPABASE_URL + "/functions/v1/claude-proxy";
 
-const TOP_PRODUCTS = [
-  "Ashwagandha Extract","Bovine Colostrum Powder","Berberine HCl",
-  "Lion's Mane Mushroom","Magnesium Glycinate","Vitamin D3",
-  "Omega-3 Fish Oil","L-Theanine","Quercetin","NMN",
-  "Shilajit Extract","Turmeric Curcumin","Probiotics","Creatine"
-];
+const PRODUCTS = ["Ashwagandha Extract","Bovine Colostrum","Berberine HCl",
+  "Lion's Mane","Magnesium Glycinate","Vitamin D3","NMN","Shilajit Extract",
+  "Turmeric Curcumin","Probiotics","Creatine","L-Theanine","Quercetin"];
 
-const THEMES = [
-  "buyers_guide","science","sourcing","market_trends","formulation"
-];
+const THEMES = ["buyers_guide","science","sourcing","market_trends","formulation"];
 
-function slugify(text) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,80);
+function slugify(t){ return t.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,80); }
+
+function hasRecentPost() {
+  const since = new Date(Date.now()-7*24*60*60*1000).toISOString();
+  const res = UrlFetchApp.fetch(
+    SUPABASE_URL+"/rest/v1/blog_posts?created_at=gte."+since+"&limit=1",
+    { headers:{ "apikey":SUPABASE_KEY, "Authorization":"Bearer "+SUPABASE_KEY }}
+  );
+  return JSON.parse(res.getContentText()).length > 0;
 }
 
-function checkRecentPost() {
-  const sevenDaysAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString();
-  const url = SUPABASE_URL + "/rest/v1/blog_posts?created_at=gte." + sevenDaysAgo + "&limit=1";
-  const res = UrlFetchApp.fetch(url, {
-    headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-  });
-  const data = JSON.parse(res.getContentText());
-  return data.length > 0;
-}
-
-function getTrendingTopic() {
+function getTrend() {
   try {
-    const rss = UrlFetchApp.fetch(
-      "https://news.google.com/rss/search?q=nutraceutical+ingredients+supplement&hl=en-US&gl=US&ceid=US:en"
-    );
-    const xml = rss.getContentText();
-    const titles = xml.match(/<title>(.*?)<\/title>/g) || [];
-    const topics = titles.slice(1,6).map(t => t.replace(/<\/?title>/g,""));
-    return topics[0] || null;
-  } catch(e) {
-    return null;
-  }
+    const xml = UrlFetchApp.fetch(
+      "https://news.google.com/rss/search?q=nutraceutical+supplement+ingredients&hl=en-US&gl=US&ceid=US:en"
+    ).getContentText();
+    const titles = xml.match(/<title>(.*?)<\\/title>/g)||[];
+    return titles[1]?.replace(/<\\/?title>/g,"")||null;
+  } catch(e){ return null; }
 }
 
-function generateAndSave() {
-  // Skip if recent post exists
-  if (checkRecentPost()) {
-    Logger.log("Recent post found — skipping autopilot");
-    return;
-  }
+function weeklyAutopilot() {
+  if (hasRecentPost()) { Logger.log("Recent post found — skip"); return; }
 
-  const product = TOP_PRODUCTS[Math.floor(Math.random()*TOP_PRODUCTS.length)];
-  const theme = THEMES[Math.floor(Math.random()*THEMES.length)];
-  const trending = getTrendingTopic();
+  const product = PRODUCTS[Math.floor(Math.random()*PRODUCTS.length)];
+  const theme   = THEMES[Math.floor(Math.random()*THEMES.length)];
+  const trend   = getTrend();
 
-  const prompt = "Write an SEO blog article for a nutraceutical B2B platform about: " + product +
-    ". Theme: " + theme + (trending ? ". Trending context: " + trending : "") +
+  const prompt = "Write B2B nutraceutical blog article. Product: "+product+
+    ". Theme: "+theme+(trend?". Trending: "+trend:"")+
     ". Return JSON: {title,meta_description,excerpt,keywords:[],content,linkedin_post,whatsapp_message,twitter_post}";
 
-  const claudeRes = UrlFetchApp.fetch(CLAUDE_PROXY, {
-    method: "post",
-    contentType: "application/json",
+  const r = UrlFetchApp.fetch(PROXY, {
+    method:"post", contentType:"application/json",
+    payload: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:2500,
+      messages:[{role:"user",content:prompt}] })
+  });
+
+  const text = JSON.parse(r.getContentText()).content[0].text
+    .replace(/\`\`\`json|\`\`\`/g,"").trim();
+  const a = JSON.parse(text);
+
+  UrlFetchApp.fetch(SUPABASE_URL+"/rest/v1/blog_posts", {
+    method:"post", contentType:"application/json",
+    headers:{ "apikey":SUPABASE_KEY, "Authorization":"Bearer "+SUPABASE_KEY, "Prefer":"return=minimal" },
     payload: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 6000,
-      messages: [{ role: "user", content: prompt }]
+      title:a.title, slug:slugify(a.title)+"-"+Date.now(),
+      meta_description:a.meta_description, content:a.content,
+      excerpt:a.excerpt, product_name:product, theme:theme,
+      keywords:a.keywords, status:"draft", source:"autopilot",
+      site:["ingredientz"], trending_topic:trend,
+      linkedin_post:a.linkedin_post, whatsapp_message:a.whatsapp_message,
+      twitter_post:a.twitter_post
     })
   });
 
-  const claudeData = JSON.parse(claudeRes.getContentText());
-  const text = claudeData.content[0].text.replace(/\`\`\`json|\`\`\`/g,"").trim();
-  const article = JSON.parse(text);
-
-  // Save to Supabase
-  UrlFetchApp.fetch(SUPABASE_URL + "/rest/v1/blog_posts", {
-    method: "post",
-    contentType: "application/json",
-    headers: {
-      "apikey": SUPABASE_KEY,
-      "Authorization": "Bearer " + SUPABASE_KEY,
-      "Prefer": "return=minimal"
-    },
-    payload: JSON.stringify({
-      title: article.title,
-      slug: slugify(article.title) + "-" + Date.now(),
-      meta_description: article.meta_description,
-      content: article.content,
-      excerpt: article.excerpt,
-      product_name: product,
-      theme: theme,
-      keywords: article.keywords,
-      status: "draft",
-      source: "autopilot",
-      trending_topic: trending,
-      linkedin_post: article.linkedin_post,
-      whatsapp_message: article.whatsapp_message,
-      twitter_post: article.twitter_post
-    })
-  });
-
-  // Email notification
   GmailApp.sendEmail(NOTIFY_EMAIL,
-    "🤖 Auto-generated article ready: " + article.title,
-    "A new blog article has been auto-generated and saved as draft.\\n\\nTitle: " + article.title +
-    "\\nProduct: " + product + "\\nTheme: " + theme +
-    "\\n\\nReview and publish at: https://ingredientz-crm-v2.vercel.app/content"
+    "🤖 Auto article ready: "+a.title,
+    "New draft saved.\\nTitle: "+a.title+"\\nProduct: "+product+
+    "\\n\\nReview: https://ingredientz-crm-v2.vercel.app"
   );
-
-  Logger.log("Article generated: " + article.title);
-}
-
-// Entry point — set this as your weekly trigger
-function weeklyAutopilot() { generateAndSave(); }`}</pre>
-            </div>
-            <button onClick={() => {
-              navigator.clipboard.writeText(document.querySelector("pre").textContent);
-              alert("Code copied! Paste into Google Apps Script.");
-            }} style={{ background: C.blue, border: "none", color: "white", borderRadius: 7, padding: "9px 20px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-              📋 Copy Apps Script Code
-            </button>
+  Logger.log("Done: "+a.title);
+}`}</pre>
           </div>
+          <button onClick={()=>{
+            const code = document.querySelector("pre").textContent;
+            navigator.clipboard.writeText(code);
+            alert("Code copied! Paste into Google Apps Script.");
+          }} style={{ background:C.blue, border:"none", color:"white", borderRadius:7, padding:"9px 20px", fontSize:12, fontWeight:600, cursor:"pointer" }}>
+            📋 Copy Apps Script Code
+          </button>
         </div>
       )}
-
     </div>
   );
 }
