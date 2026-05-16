@@ -79,7 +79,13 @@ export function ContentEngine({ onDone }) {
   const [saved, setSaved] = useState(false);
   const [posts, setPosts] = useState([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
-  const [activeSocial, setActiveSocial] = useState("linkedin");
+  const [selectedSites, setSelectedSites] = useState(["ingredientz"]);
+
+  function toggleSite(site) {
+    setSelectedSites(prev =>
+      prev.includes(site) ? prev.filter(s => s !== site) : [...prev, site]
+    );
+  }
   const [copied, setCopied] = useState("");
 
   useEffect(() => { if (tab === "posts") loadPosts(); }, [tab]);
@@ -123,6 +129,7 @@ export function ContentEngine({ onDone }) {
         keywords: result.keywords,
         status,
         source: "manual",
+        site: selectedSites,
         trending_topic: customKeyword || null,
         linkedin_post: result.linkedin_post,
         whatsapp_message: result.whatsapp_message,
@@ -278,20 +285,39 @@ export function ContentEngine({ onDone }) {
 
               {/* Save actions */}
               {!saved ? (
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button onClick={() => savePost("published")} disabled={saving}
-                    style={{ flex: 1, background: C.blue, border: "none", color: "white", borderRadius: 8, padding: "11px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                    {saving ? "Saving…" : "🌐 Publish to Website"}
-                  </button>
-                  <button onClick={() => savePost("draft")} disabled={saving}
-                    style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, color: C.ink, borderRadius: 8, padding: "11px", fontSize: 13, cursor: "pointer" }}>
-                    💾 Save as Draft
-                  </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {/* Site selector */}
+                  <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.5, marginBottom: 10 }}>PUBLISH TO</div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      {[
+                        ["ingredientz", "🌐 Ingredientz.co"],
+                        ["purecolostrum", "💧 PureColostrum.co"],
+                      ].map(([site, label]) => (
+                        <label key={site} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "6px 12px", borderRadius: 6, border: `1px solid ${selectedSites.includes(site) ? C.blue : C.border}`, background: selectedSites.includes(site) ? "#EEF4FF" : "white", flex: 1, justifyContent: "center" }}>
+                          <input type="checkbox" checked={selectedSites.includes(site)} onChange={() => toggleSite(site)} style={{ accentColor: C.blue }}/>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: selectedSites.includes(site) ? C.blue : C.muted }}>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => savePost("published")} disabled={saving}
+                      style={{ flex: 1, background: C.blue, border: "none", color: "white", borderRadius: 8, padding: "11px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      {saving ? "Saving…" : "🌐 Publish Now"}
+                    </button>
+                    <button onClick={() => savePost("draft")} disabled={saving}
+                      style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, color: C.ink, borderRadius: 8, padding: "11px", fontSize: 13, cursor: "pointer" }}>
+                      💾 Save as Draft
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: 14, textAlign: "center" }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#166534", marginBottom: 4 }}>✅ Article saved!</div>
-                  <div style={{ fontSize: 11, color: "#15803d" }}>It will appear on ingredientz.co/blog once published</div>
+                  <div style={{ fontSize: 11, color: "#15803d" }}>
+                    Published to: {selectedSites.map(s => s === "ingredientz" ? "ingredientz.co/blog" : "purecolostrum.co/blog").join(" + ")}
+                  </div>
                 </div>
               )}
             </div>
