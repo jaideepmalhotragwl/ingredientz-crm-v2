@@ -8,6 +8,7 @@ import { Dashboard }       from "./components/Dashboard.jsx";
 import { EnquiriesTab }    from "./components/EnquiriesTab.jsx";
 import { OrdersTab }       from "./components/OrdersTab.jsx";
 import { OrderForm }       from "./components/orders/OrderForm.jsx";
+import { OrderDrawer }     from "./components/OrderDrawer.jsx";
 import { RemindersTab }    from "./components/RemindersTab.jsx";
 import { CustomersTab }    from "./components/CustomersTab.jsx";
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -17,34 +18,49 @@ import { UsersTab }        from "./components/UsersTab.jsx";
 import { DocumentsTab }    from "./components/DocumentsTab.jsx";
 import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
 import { ContentEngine }   from "./components/ContentEngine.jsx";
-// ── MAIN APP ──────────────────────────────────────────────────────────────────
+
 export default function App() {
   const [loading, setLoading]       = useState(true);
   const [toast, setToast]           = useState(null);
   const [enquiries, setEnquiries]   = useState([]);
   const [customers, setCustomers]   = useState([]);
+  const [suppliers, setSuppliers]   = useState([]);
   const [users, setUsers]           = useState([]);
   const [tasks, setTasks]           = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [threads, setThreads]       = useState([]);
   const [orders, setOrders]         = useState([]);
+  const [orderItems, setOrderItems] = useState([]);
+  const [supplierPOs, setSupplierPOs] = useState([]);
+  const [supplierPOItems, setSupplierPOItems] = useState([]);
+  const [invoices, setInvoices]     = useState([]);
+  const [payments, setPayments]     = useState([]);
+  const [shipments, setShipments]   = useState([]);
+  const [statusHistory, setStatusHistory] = useState([]);
   const [activeTab, setActiveTab]   = useState("dashboard");
   const [selectedEnq, setSelectedEnq] = useState(null);
   const [orderFormOpen, setOrderFormOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   function showToast(msg, err = false) {
     setToast({ msg, err });
     setTimeout(() => setToast(null), 3000);
   }
+
   useEffect(() => {
     Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
       dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
-      dbGet("orders")
-    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords]) => {
+      dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
+      dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
+      dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers")
+    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups]) => {
       setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
       setTasks(tsks); setQuotations(quots); setThreads(thrs);
-      setOrders(ords);
+      setOrders(ords); setOrderItems(oItems);
+      setSupplierPOs(spos); setSupplierPOItems(spoItems);
+      setInvoices(invs); setPayments(pays); setShipments(ships);
+      setStatusHistory(hist); setSuppliers(sups);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -135,15 +151,12 @@ export default function App() {
     await dbDelete("tasks", id);
     setTasks(p => p.filter(t => t.id !== id));
   }
-  // ── Customer ops ─────────────────────────────────────────────────────────────
   async function addCustomer(row)    { const data = await dbInsert("customers", row); if (data) { setCustomers(p => [data, ...p]); showToast(`✓ ${row.company} added`); } }
   async function updateCustomer(id, row) { await dbUpdate("customers", id, row); setCustomers(p => p.map(c => c.id === id ? { ...c, ...row } : c)); }
   async function deleteCustomer(id)  { await dbDelete("customers", id); setCustomers(p => p.filter(c => c.id !== id)); }
-  // ── User ops ─────────────────────────────────────────────────────────────────
   async function addUser(row)    { const data = await dbInsert("users", row); if (data) { setUsers(p => [data, ...p]); showToast(`✓ ${row.name} added`); } }
   async function updateUser(id, row) { await dbUpdate("users", id, row); setUsers(p => p.map(u => u.id === id ? { ...u, ...row } : u)); }
   async function deleteUser(id)  { await dbDelete("users", id); setUsers(p => p.filter(u => u.id !== id)); }
-  // ── Quotation ops ─────────────────────────────────────────────────────────────
   async function saveQuotation(row) {
     const data = await dbInsert("quotations", row);
     if (data) {
@@ -175,74 +188,54 @@ export default function App() {
     try {
       await supabase.from("email_sequences")
         .update({ cancelled_at: new Date().toISOString() })
-        .eq("enquiry_id", enq.id)
-        .eq("sequence_type", type)
-        .is("sent_at", null)
-        .is("cancelled_at", null);
+        .eq("enquiry_id", enq.id).eq("sequence_type", type)
+        .is("sent_at", null).is("cancelled_at", null);
       const now = new Date();
       const rows = delayDays.map((days, idx) => {
         const sendAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
         return {
-          enquiry_id: enq.id,
-          customer_name: enq.customer_name,
-          sequence_type: type,
-          step: idx + 1,
+          enquiry_id: enq.id, customer_name: enq.customer_name,
+          sequence_type: type, step: idx + 1,
           scheduled_at: sendAt.toISOString(),
-          to_email: toEmail,
-          from_email: fromEmail,
+          to_email: toEmail, from_email: fromEmail,
           body_preview: (Array.isArray(enq.products) ? enq.products.map(p => p.name).join(", ") : "") || enq.customer_name
         };
       });
       await supabase.from("email_sequences").insert(rows);
       showToast(`✓ ${delayDays.length} follow-up reminders scheduled`);
-    } catch(e) {
-      console.error("scheduleSequence error:", e);
-    }
+    } catch(e) { console.error("scheduleSequence error:", e); }
   }
   async function logEmail(row) {
     const data = await dbInsert("email_threads", row);
     if (data) { setThreads(p => [data, ...p]); showToast("✓ Email logged"); }
   }
 
-  // ── Order ops ────────────────────────────────────────────────────────────────
-  /**
-   * Create an order with line items + optional PO PDF upload.
-   * Returns the saved order (with order_number) or null on failure.
-   */
+  // ── ORDER OPS ────────────────────────────────────────────────────────────────
   async function addOrder(orderRow, itemRows, poFile) {
     try {
-      // 1) Insert order first to get id + auto-generated order_number
       const newOrder = await dbInsert("orders", orderRow);
       if (!newOrder) { showToast("✗ Failed to create order", true); return null; }
-
-      // 2) Upload PDF if provided, then update order with the file path
       if (poFile) {
-        const { path, error } = await uploadOrderDocument(
-          poFile,
-          `orders/${newOrder.order_number}/customer_po`
-        );
-        if (error) {
-          showToast("⚠ Order saved but PDF upload failed", true);
-        } else if (path) {
+        const { path, error } = await uploadOrderDocument(poFile, `orders/${newOrder.order_number}/customer_po`);
+        if (error) { showToast("⚠ Order saved but PDF upload failed", true); }
+        else if (path) {
           await dbUpdate("orders", newOrder.id, { customer_po_file_url: path });
           newOrder.customer_po_file_url = path;
         }
       }
-
-      // 3) Insert line items linked to the new order
       const linesToInsert = itemRows.map(it => ({ ...it, order_id: newOrder.id }));
-      const { error: itemsError } = await supabase.from("order_items").insert(linesToInsert);
+      const { data: savedItems, error: itemsError } = await supabase.from("order_items").insert(linesToInsert).select();
       if (itemsError) {
         console.error("order_items insert error:", itemsError);
-        showToast("⚠ Order saved but line items failed — check console", true);
+        showToast("⚠ Order saved but line items failed", true);
+      } else if (savedItems) {
+        setOrderItems(p => [...savedItems, ...p]);
       }
-
-      // 4) Refresh order with computed total_amount (trigger fires after items insert)
-      const refreshed = await dbGet("orders", { id: newOrder.id });
-      const finalOrder = refreshed?.[0] || newOrder;
-
-      // 5) Update state
+      const { data: refreshed } = await supabase.from("orders").select("*").eq("id", newOrder.id).single();
+      const finalOrder = refreshed || newOrder;
       setOrders(p => [finalOrder, ...p.filter(o => o.id !== finalOrder.id)]);
+      const { data: newHist } = await supabase.from("order_status_history").select("*").eq("order_id", newOrder.id);
+      if (newHist) setStatusHistory(p => [...newHist, ...p]);
       showToast(`✓ Order ${finalOrder.order_number} created`);
       return finalOrder;
     } catch (e) {
@@ -252,20 +245,179 @@ export default function App() {
     }
   }
 
+  async function updateOrder(id, patch) {
+    await dbUpdate("orders", id, patch);
+    setOrders(p => p.map(o => o.id === id ? { ...o, ...patch } : o));
+    if (selectedOrder?.id === id) setSelectedOrder(s => ({ ...s, ...patch }));
+    showToast("✓ Order updated");
+  }
+
+  async function updateOrderStatus(id, status) {
+    await dbUpdate("orders", id, { status });
+    setOrders(p => p.map(o => o.id === id ? { ...o, status } : o));
+    if (selectedOrder?.id === id) setSelectedOrder(s => ({ ...s, status }));
+    const { data: hist } = await supabase.from("order_status_history").select("*").eq("order_id", id).order("changed_at", { ascending: false });
+    if (hist) setStatusHistory(p => [...hist, ...p.filter(h => h.order_id !== id)]);
+    showToast(`✓ Status → ${status}`);
+  }
+
+  async function addSupplierPO(poRow, poItemRows, pdfFile) {
+    try {
+      const newPO = await dbInsert("supplier_pos", poRow);
+      if (!newPO) { showToast("✗ Failed to create supplier PO", true); return null; }
+      if (pdfFile) {
+        const order = orders.find(o => o.id === poRow.order_id);
+        const { path, error } = await uploadOrderDocument(pdfFile, `orders/${order?.order_number || poRow.order_id}/supplier_po/${newPO.supplier_po_number}`);
+        if (!error && path) {
+          await dbUpdate("supplier_pos", newPO.id, { pdf_url: path });
+          newPO.pdf_url = path;
+        }
+      }
+      const itemsToInsert = poItemRows.map(it => ({ ...it, supplier_po_id: newPO.id }));
+      const { data: savedItems } = await supabase.from("supplier_po_items").insert(itemsToInsert).select();
+      setSupplierPOs(p => [newPO, ...p]);
+      if (savedItems) setSupplierPOItems(p => [...savedItems, ...p]);
+      if (poRow.order_id) {
+        const order = orders.find(o => o.id === poRow.order_id);
+        if (order?.status === "Received") {
+          await updateOrderStatus(poRow.order_id, "Suppliers Assigned");
+        }
+      }
+      showToast(`✓ Supplier PO ${newPO.supplier_po_number} created`);
+      return newPO;
+    } catch (e) {
+      console.error("addSupplierPO error:", e);
+      showToast("✗ Failed to create supplier PO", true);
+      return null;
+    }
+  }
+
+  async function updateSupplierPO(id, patch) {
+    await dbUpdate("supplier_pos", id, patch);
+    setSupplierPOs(p => p.map(po => po.id === id ? { ...po, ...patch } : po));
+    showToast("✓ Supplier PO updated");
+  }
+
+  async function addInvoice(invoiceRow, file) {
+    try {
+      const newInv = await dbInsert("order_invoices", invoiceRow);
+      if (!newInv) { showToast("✗ Failed to create invoice", true); return null; }
+      if (file) {
+        const order = orders.find(o => o.id === invoiceRow.order_id);
+        const subfolder = invoiceRow.type === "customer" ? "customer_invoice" : "supplier_invoice";
+        const { path, error } = await uploadOrderDocument(file, `orders/${order?.order_number || invoiceRow.order_id}/${subfolder}/${newInv.invoice_number}`);
+        if (!error && path) {
+          await dbUpdate("order_invoices", newInv.id, { file_url: path });
+          newInv.file_url = path;
+        }
+      }
+      setInvoices(p => [newInv, ...p]);
+      if (invoiceRow.type === "customer" && invoiceRow.order_id) {
+        const order = orders.find(o => o.id === invoiceRow.order_id);
+        if (order?.status === "Confirmed" || order?.status === "Suppliers Assigned") {
+          await updateOrderStatus(invoiceRow.order_id, "Invoiced");
+        }
+      }
+      showToast(`✓ Invoice ${newInv.invoice_number} logged`);
+      return newInv;
+    } catch (e) {
+      console.error("addInvoice error:", e);
+      showToast("✗ Failed to log invoice", true);
+      return null;
+    }
+  }
+
+  async function updateInvoice(id, patch) {
+    await dbUpdate("order_invoices", id, patch);
+    setInvoices(p => p.map(i => i.id === id ? { ...i, ...patch } : i));
+    showToast("✓ Invoice updated");
+  }
+
+  async function addPayment(paymentRow) {
+    try {
+      const newPay = await dbInsert("order_payments", paymentRow);
+      if (!newPay) { showToast("✗ Failed to log payment", true); return null; }
+      setPayments(p => [newPay, ...p]);
+      if (paymentRow.invoice_id) {
+        const inv = invoices.find(i => i.id === paymentRow.invoice_id);
+        if (inv) {
+          const allPaymentsForInv = [...payments, newPay].filter(p => p.invoice_id === paymentRow.invoice_id);
+          const totalPaid = allPaymentsForInv.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+          const invTotal = parseFloat(inv.total_amount || 0);
+          let newStatus = "unpaid";
+          if (totalPaid >= invTotal) newStatus = "paid";
+          else if (totalPaid > 0) newStatus = "partial";
+          if (newStatus !== inv.status) await updateInvoice(inv.id, { status: newStatus });
+        }
+      }
+      if (paymentRow.type === "customer_payment_in" && paymentRow.order_id) {
+        const order = orders.find(o => o.id === paymentRow.order_id);
+        if (order && order.status === "Invoiced") {
+          const allCustPayments = [...payments, newPay].filter(p => p.order_id === paymentRow.order_id && p.type === "customer_payment_in");
+          const totalReceived = allCustPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+          if (totalReceived >= parseFloat(order.total_amount || 0)) {
+            await updateOrderStatus(paymentRow.order_id, "Paid");
+          }
+        }
+      }
+      showToast("✓ Payment logged");
+      return newPay;
+    } catch (e) {
+      console.error("addPayment error:", e);
+      showToast("✗ Failed to log payment", true);
+      return null;
+    }
+  }
+
+  async function addShipment(shipmentRow) {
+    try {
+      const newShip = await dbInsert("order_shipments", shipmentRow);
+      if (!newShip) { showToast("✗ Failed to log shipment", true); return null; }
+      setShipments(p => [newShip, ...p]);
+      if (shipmentRow.order_id) {
+        const order = orders.find(o => o.id === shipmentRow.order_id);
+        if (order) {
+          if (shipmentRow.status === "delivered" && order.status !== "Delivered") {
+            await updateOrderStatus(shipmentRow.order_id, "Delivered");
+          } else if (shipmentRow.status === "in_transit" && !["Shipped", "Delivered"].includes(order.status)) {
+            await updateOrderStatus(shipmentRow.order_id, "Shipped");
+          }
+        }
+      }
+      showToast("✓ Shipment logged");
+      return newShip;
+    } catch (e) {
+      console.error("addShipment error:", e);
+      showToast("✗ Failed to log shipment", true);
+      return null;
+    }
+  }
+
+  async function updateShipment(id, patch) {
+    await dbUpdate("order_shipments", id, patch);
+    setShipments(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
+    showToast("✓ Shipment updated");
+  }
+
   async function handleRefresh() {
     setLoading(true);
-    const [enqs, custs, usrs, tsks, quots, thrs, ords] = await Promise.all([
+    const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups] = await Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
       dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
-      dbGet("orders")
+      dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
+      dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
+      dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers")
     ]);
     setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
     setTasks(tsks); setQuotations(quots); setThreads(thrs);
-    setOrders(ords);
+    setOrders(ords); setOrderItems(oItems);
+    setSupplierPOs(spos); setSupplierPOItems(spoItems);
+    setInvoices(invs); setPayments(pays); setShipments(ships);
+    setStatusHistory(hist); setSuppliers(sups);
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
-  // ── Nav ──────────────────────────────────────────────────────────────────────
+
   const overdueTaskCount = tasks.filter(t => t.status !== "Done" && t.due_date && daysUntil(t.due_date) < 0).length;
   const overdueReminderCount = enquiries.filter(e => {
     const d = daysUntil(e.reminder_date);
@@ -300,7 +452,6 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Sidebar */}
       <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 215, background: "#1877F2", borderRight: "1px solid rgba(255,255,255,0.1)", zIndex: 10, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
           <img src={LOGO} alt="Ingredientz" style={{ width: "100%", height: 44, objectFit: "contain", objectPosition: "left center", background: "white", borderRadius: 7, padding: "5px 10px" }} />
@@ -333,7 +484,7 @@ export default function App() {
           {[
             ["Enquiries", enquiries.length, "white"],
             ["Active", enquiries.filter(e => !["PO Received","Lost","No Response","Out of Scope"].includes(e.stage)).length, "#86efac"],
-            ["Overdue", overdueReminderCount, overdueReminderCount > 0 ? C.red : "#86efac"]
+            ["Orders", orders.length, "#86efac"]
           ].map(([l, v, col]) => (
             <div key={l} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
               <span style={{ fontSize: 10, color: "rgba(255,255,255,0.65)" }}>{l}</span>
@@ -342,7 +493,6 @@ export default function App() {
           ))}
         </div>
       </div>
-      {/* Main content */}
       <div style={{ marginLeft: 215, padding: "24px 28px" }}>
         <div style={{ marginBottom: 22 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: C.ink, margin: 0, lineHeight: 1 }}>
@@ -354,7 +504,7 @@ export default function App() {
         </div>
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
-        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={() => alert("Order detail drawer coming in Batch 3!")} onNew={() => setOrderFormOpen(true)} />}
+        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
@@ -364,6 +514,7 @@ export default function App() {
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
+
       <EnquiryDrawer
         enq={selectedEnq}
         onClose={() => setSelectedEnq(null)}
@@ -378,6 +529,7 @@ export default function App() {
         onLogEmail={logEmail}
         onThreadInserted={row => setThreads(p => [row, ...p])}
       />
+
       {orderFormOpen && (
         <OrderForm
           customers={customers}
@@ -386,6 +538,32 @@ export default function App() {
           onSave={addOrder}
         />
       )}
+
+      {selectedOrder && (
+        <OrderDrawer
+          order={selectedOrder}
+          orderItems={orderItems.filter(i => i.order_id === selectedOrder.id)}
+          supplierPOs={supplierPOs.filter(po => po.order_id === selectedOrder.id)}
+          supplierPOItems={supplierPOItems.filter(spi => supplierPOs.some(po => po.order_id === selectedOrder.id && po.id === spi.supplier_po_id))}
+          invoices={invoices.filter(i => i.order_id === selectedOrder.id)}
+          payments={payments.filter(p => p.order_id === selectedOrder.id)}
+          shipments={shipments.filter(s => s.order_id === selectedOrder.id)}
+          statusHistory={statusHistory.filter(h => h.order_id === selectedOrder.id)}
+          customers={customers}
+          suppliers={suppliers}
+          onClose={() => setSelectedOrder(null)}
+          onUpdateOrder={updateOrder}
+          onUpdateStatus={updateOrderStatus}
+          onAddSupplierPO={addSupplierPO}
+          onUpdateSupplierPO={updateSupplierPO}
+          onAddInvoice={addInvoice}
+          onUpdateInvoice={updateInvoice}
+          onAddPayment={addPayment}
+          onAddShipment={addShipment}
+          onUpdateShipment={updateShipment}
+        />
+      )}
+
       <style>{`
         *{box-sizing:border-box;}
         ::-webkit-scrollbar{width:5px;height:5px;}
