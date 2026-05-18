@@ -2,10 +2,12 @@ import { useState, useEffect } from "react";
 import { supabase } from "./config.js";
 import { C, STAGES } from "./constants.js";
 import { dbGet, dbInsert, dbUpdate, dbDelete, sendEmail, getSenderEmail, buildEmailHtml, daysUntil } from "./utils.js";
+import { uploadOrderDocument } from "./lib/orderUtils.js";
 import { LOGO, QUOTATION_TEMPLATE } from "./templates.js";
 import { Dashboard }       from "./components/Dashboard.jsx";
 import { EnquiriesTab }    from "./components/EnquiriesTab.jsx";
 import { OrdersTab }       from "./components/OrdersTab.jsx";
+import { OrderForm }       from "./components/orders/OrderForm.jsx";
 import { RemindersTab }    from "./components/RemindersTab.jsx";
 import { CustomersTab }    from "./components/CustomersTab.jsx";
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -28,6 +30,8 @@ export default function App() {
   const [orders, setOrders]         = useState([]);
   const [activeTab, setActiveTab]   = useState("dashboard");
   const [selectedEnq, setSelectedEnq] = useState(null);
+  const [orderFormOpen, setOrderFormOpen] = useState(false);
+
   function showToast(msg, err = false) {
     setToast({ msg, err });
     setTimeout(() => setToast(null), 3000);
@@ -43,6 +47,7 @@ export default function App() {
       setOrders(ords);
     }).finally(() => setLoading(false));
   }, []);
+
   // ── Enquiry ops ──────────────────────────────────────────────────────────────
   async function addEnquiry(row) {
     const data = await dbInsert("enquiries", row);
@@ -198,6 +203,55 @@ export default function App() {
     const data = await dbInsert("email_threads", row);
     if (data) { setThreads(p => [data, ...p]); showToast("✓ Email logged"); }
   }
+
+  // ── Order ops ────────────────────────────────────────────────────────────────
+  /**
+   * Create an order with line items + optional PO PDF upload.
+   * Returns the saved order (with order_number) or null on failure.
+   */
+  async function addOrder(orderRow, itemRows, poFile) {
+    try {
+      // 1) Insert order first to get id + auto-generated order_number
+      const newOrder = await dbInsert("orders", orderRow);
+      if (!newOrder) { showToast("✗ Failed to create order", true); return null; }
+
+      // 2) Upload PDF if provided, then update order with the file path
+      if (poFile) {
+        const { path, error } = await uploadOrderDocument(
+          poFile,
+          `orders/${newOrder.order_number}/customer_po`
+        );
+        if (error) {
+          showToast("⚠ Order saved but PDF upload failed", true);
+        } else if (path) {
+          await dbUpdate("orders", newOrder.id, { customer_po_file_url: path });
+          newOrder.customer_po_file_url = path;
+        }
+      }
+
+      // 3) Insert line items linked to the new order
+      const linesToInsert = itemRows.map(it => ({ ...it, order_id: newOrder.id }));
+      const { error: itemsError } = await supabase.from("order_items").insert(linesToInsert);
+      if (itemsError) {
+        console.error("order_items insert error:", itemsError);
+        showToast("⚠ Order saved but line items failed — check console", true);
+      }
+
+      // 4) Refresh order with computed total_amount (trigger fires after items insert)
+      const refreshed = await dbGet("orders", { id: newOrder.id });
+      const finalOrder = refreshed?.[0] || newOrder;
+
+      // 5) Update state
+      setOrders(p => [finalOrder, ...p.filter(o => o.id !== finalOrder.id)]);
+      showToast(`✓ Order ${finalOrder.order_number} created`);
+      return finalOrder;
+    } catch (e) {
+      console.error("addOrder error:", e);
+      showToast("✗ Unexpected error creating order", true);
+      return null;
+    }
+  }
+
   async function handleRefresh() {
     setLoading(true);
     const [enqs, custs, usrs, tsks, quots, thrs, ords] = await Promise.all([
@@ -300,7 +354,7 @@ export default function App() {
         </div>
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
-        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={() => alert("Order drawer coming in Batch 3 — for now we can see the list works!")} onNew={() => alert("Create form coming in Batch 2!")} />}
+        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={() => alert("Order detail drawer coming in Batch 3!")} onNew={() => setOrderFormOpen(true)} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
@@ -324,6 +378,14 @@ export default function App() {
         onLogEmail={logEmail}
         onThreadInserted={row => setThreads(p => [row, ...p])}
       />
+      {orderFormOpen && (
+        <OrderForm
+          customers={customers}
+          enquiries={enquiries}
+          onClose={() => setOrderFormOpen(false)}
+          onSave={addOrder}
+        />
+      )}
       <style>{`
         *{box-sizing:border-box;}
         ::-webkit-scrollbar{width:5px;height:5px;}
