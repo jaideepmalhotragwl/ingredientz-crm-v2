@@ -1,4 +1,5 @@
 import { C } from "../constants.js";
+import { supabase } from "../config.js";
 
 // ── Order status workflow ────────────────────────────────────────────────────
 export const ORDER_STATUSES = [
@@ -118,4 +119,71 @@ export function getSourceLabel(source) {
 
 export function getSourceColor(source) {
   return source === "enquiry" ? "#8E44AD" : C.muted;
+}
+
+// ── Storage helpers (Supabase bucket: order-documents) ───────────────────────
+
+/**
+ * Make a string safe to use in a file path.
+ */
+export function slugify(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+/**
+ * Upload a File object to the order-documents bucket.
+ * Returns { path, error }.
+ *
+ * Path convention:
+ *   orders/{order_number}/customer_po/{timestamp}-{filename}
+ *   orders/{order_number}/customer_invoice/{...}
+ *   orders/{order_number}/supplier_po/{supplier_po_number}/{...}
+ *   orders/{order_number}/supplier_invoice/{supplier_po_number}/{...}
+ */
+export async function uploadOrderDocument(file, pathPrefix) {
+  if (!file) return { path: null, error: null };
+  const timestamp = Date.now();
+  const safeName = slugify(file.name.replace(/\.[^.]+$/, "")) +
+                   (file.name.match(/\.[^.]+$/)?.[0] || "");
+  const fullPath = `${pathPrefix}/${timestamp}-${safeName}`;
+  const { error } = await supabase.storage
+    .from("order-documents")
+    .upload(fullPath, file, { cacheControl: "3600", upsert: false });
+  if (error) {
+    console.error("Upload error:", error);
+    return { path: null, error };
+  }
+  return { path: fullPath, error: null };
+}
+
+/**
+ * Get a signed URL for a stored document so it can be viewed/downloaded.
+ * Returns { url, error }. URL valid for 1 hour.
+ */
+export async function getOrderDocumentUrl(path) {
+  if (!path) return { url: null, error: null };
+  const { data, error } = await supabase.storage
+    .from("order-documents")
+    .createSignedUrl(path, 3600);
+  if (error) {
+    console.error("Signed URL error:", error);
+    return { url: null, error };
+  }
+  return { url: data.signedUrl, error: null };
+}
+
+/**
+ * Delete a stored document by path.
+ */
+export async function deleteOrderDocument(path) {
+  if (!path) return { error: null };
+  const { error } = await supabase.storage
+    .from("order-documents")
+    .remove([path]);
+  if (error) console.error("Delete error:", error);
+  return { error };
 }
