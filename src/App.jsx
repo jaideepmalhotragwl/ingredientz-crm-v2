@@ -5,6 +5,7 @@ import { dbGet, dbInsert, dbUpdate, dbDelete, sendEmail, getSenderEmail, buildEm
 import { LOGO, QUOTATION_TEMPLATE } from "./templates.js";
 import { Dashboard }       from "./components/Dashboard.jsx";
 import { EnquiriesTab }    from "./components/EnquiriesTab.jsx";
+import { OrdersTab }       from "./components/OrdersTab.jsx";
 import { RemindersTab }    from "./components/RemindersTab.jsx";
 import { CustomersTab }    from "./components/CustomersTab.jsx";
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -24,6 +25,7 @@ export default function App() {
   const [tasks, setTasks]           = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [threads, setThreads]       = useState([]);
+  const [orders, setOrders]         = useState([]);
   const [activeTab, setActiveTab]   = useState("dashboard");
   const [selectedEnq, setSelectedEnq] = useState(null);
   function showToast(msg, err = false) {
@@ -33,10 +35,12 @@ export default function App() {
   useEffect(() => {
     Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
-      dbGet("tasks"), dbGet("quotations"), dbGet("email_threads")
-    ]).then(([enqs, custs, usrs, tsks, quots, thrs]) => {
+      dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
+      dbGet("orders")
+    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords]) => {
       setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
       setTasks(tsks); setQuotations(quots); setThreads(thrs);
+      setOrders(ords);
     }).finally(() => setLoading(false));
   }, []);
   // ── Enquiry ops ──────────────────────────────────────────────────────────────
@@ -196,12 +200,14 @@ export default function App() {
   }
   async function handleRefresh() {
     setLoading(true);
-    const [enqs, custs, usrs, tsks, quots, thrs] = await Promise.all([
+    const [enqs, custs, usrs, tsks, quots, thrs, ords] = await Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
-      dbGet("tasks"), dbGet("quotations"), dbGet("email_threads")
+      dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
+      dbGet("orders")
     ]);
     setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
     setTasks(tsks); setQuotations(quots); setThreads(thrs);
+    setOrders(ords);
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
@@ -214,6 +220,7 @@ export default function App() {
   const TABS = [
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: overdueTaskCount > 0 ? overdueTaskCount : 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
+    { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
     { id: "reminders",  label: "Reminders",  icon: "🔔", badge: overdueReminderCount },
     { id: "customers",  label: "Customers",  icon: "🏢", badge: 0 },
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
@@ -293,6 +300,7 @@ export default function App() {
         </div>
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
+        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={() => alert("Order drawer coming in Batch 3 — for now we can see the list works!")} onNew={() => alert("Create form coming in Batch 2!")} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
