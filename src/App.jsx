@@ -18,6 +18,7 @@ import { UsersTab }        from "./components/UsersTab.jsx";
 import { DocumentsTab }    from "./components/DocumentsTab.jsx";
 import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
 import { ContentEngine }   from "./components/ContentEngine.jsx";
+import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
 
 export default function App() {
   const [loading, setLoading]       = useState(true);
@@ -434,6 +435,7 @@ export default function App() {
     { id: "suppliers",  label: "Suppliers",  icon: "🏭", badge: 0 },
     { id: "documents",  label: "Documents",  icon: "📄", badge: 0 },
     { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
+    { id: "marketintel", label: "Market Intel", icon: "📈", badge: 0 },
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
   ];
   return (
@@ -512,6 +514,7 @@ export default function App() {
         {activeTab === "suppliers"  && <SuppliersTab />}
         {activeTab === "documents"  && <DocumentsTab />}
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
+        {activeTab === "marketintel" && <MarketIntelTab />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
 
