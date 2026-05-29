@@ -40,6 +40,16 @@ function fmt(n) {
   return Number(n).toLocaleString("en-US");
 }
 
+// Format USD values compactly: $328M, $59.9M, $1.7M etc.
+function fmtUsd(n) {
+  if (n === null || n === undefined) return "—";
+  const v = Number(n);
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
+  return `$${v.toFixed(0)}`;
+}
+
 function compBadge(comp) {
   const map = { HIGH: C.red, MEDIUM: C.amber, LOW: C.green };
   const col = map[comp] || C.muted;
@@ -109,10 +119,32 @@ async function fetchNews(ingredient, marketCode) {
   }
 }
 
+// Stage 3: Fetch trade flow data from comtrade-fetch Edge Function (live mode).
+// Reads from the pre-cached trade_intel table; returns instantly.
+async function fetchTrade(ingredient) {
+  try {
+    const url = `${SUPA_URL}/functions/v1/comtrade-fetch`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPA_ANON}`,
+      },
+      body: JSON.stringify({ mode: "live", ingredient }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
 export function ResearchConsoleTab() {
   const [ingredient, setIngredient] = useState("");
   const [results, setResults] = useState({});
   const [news, setNews] = useState({});
+  const [trade, setTrade] = useState(null);
   const [searched, setSearched] = useState(false);
 
   function handleSubmit() {
@@ -127,6 +159,8 @@ export function ResearchConsoleTab() {
     });
     setResults(initialResults);
     setNews(initialNews);
+    setTrade({ state: "loading" });
+
     MARKETS.forEach((m) => {
       fetchMarket(term, m.code).then((r) => {
         setResults((prev) => ({
@@ -144,6 +178,11 @@ export function ResearchConsoleTab() {
             : { state: "error", error: r.error },
         }));
       });
+    });
+
+    fetchTrade(term).then((r) => {
+      if (r.ok) setTrade({ state: "done", ...r.data });
+      else setTrade({ state: "error", error: r.error });
     });
   }
 
@@ -164,6 +203,26 @@ export function ResearchConsoleTab() {
       .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0))
       .slice(0, 20);
   }, [results]);
+
+  // Decide whether to show the trade section. Hide cleanly when:
+  //  - still loading (handled separately)
+  //  - ingredient is unmapped in HS_DICT
+  //  - ingredient is mapped but has no cached data
+  //  - both exporter and importer lists are empty
+  const tradeHasData =
+    trade?.state === "done" &&
+    trade.mapped &&
+    trade.cached &&
+    ((trade.exporters && trade.exporters.length > 0) ||
+      (trade.importers && trade.importers.length > 0));
+
+  // Narrowness banner color: tight = green, broad = amber, very_broad = red-ish.
+  function narrownessLabel(n) {
+    if (n === "tight") return { color: C.green, text: "Tight match — this HS code maps closely to the ingredient." };
+    if (n === "broad") return { color: C.amber, text: "Broad category — HS code covers this ingredient plus related ones." };
+    if (n === "very_broad") return { color: C.red, text: "Very broad category — HS code is a catch-all; numbers reflect the category, not the ingredient alone." };
+    return { color: C.muted, text: "" };
+  }
 
   return (
     <div>
@@ -193,14 +252,14 @@ export function ResearchConsoleTab() {
 
       {!searched && (
         <div style={{ color: C.muted, fontSize: 13, padding: "40px 20px", textAlign: "center" }}>
-          Type any ingredient above and press <b>Research</b>. We'll pull real Google search demand from all 5 markets (USA, UK, Germany, France, Spain) — usually takes about 8 seconds.
+          Type any ingredient above and press <b>Research</b>. We'll pull live Google search demand, recent news, and global trade flows from 6 markets — usually takes about 10 seconds.
         </div>
       )}
 
       {searched && (
         <>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 10 }}>
-            Search demand · 5 markets
+            Search demand · 6 markets
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, marginBottom: 24 }}>
             {MARKETS.map((m) => {
@@ -347,10 +406,109 @@ export function ResearchConsoleTab() {
             })}
           </div>
 
+          {/* Stage 3: Trade flows (shown only if ingredient is cached and has data) */}
+          {tradeHasData && (() => {
+            const nlabel = narrownessLabel(trade.narrowness);
+            return (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 10,
+                  display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>Trade flows · {trade.year}</span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: C.muted }}>
+                    UN Comtrade · HS {trade.hs_code}
+                  </span>
+                </div>
+
+                {/* Honesty banner */}
+                {nlabel.text && (
+                  <div style={{
+                    background: nlabel.color + "12",
+                    border: `1px solid ${nlabel.color}40`,
+                    borderRadius: 9,
+                    padding: "10px 14px",
+                    marginBottom: 12,
+                    fontSize: 12,
+                    color: C.ink,
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "flex-start",
+                  }}>
+                    <span style={{ fontSize: 14 }}>
+                      {trade.narrowness === "tight" ? "✓" : trade.narrowness === "broad" ? "⚠" : "⚠"}
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 600, color: nlabel.color, marginBottom: 2 }}>
+                        {trade.category}
+                      </div>
+                      <div style={{ color: C.muted, lineHeight: 1.4 }}>
+                        {nlabel.text}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Two-column trade panel */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
+                  {/* Top Exporters */}
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.border}`,
+                      fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 1, display: "flex", justifyContent: "space-between" }}>
+                      <span>TOP EXPORTERS</span>
+                      <span style={{ color: C.green }}>↗ SUPPLY</span>
+                    </div>
+                    {trade.exporters && trade.exporters.length > 0 ? (
+                      trade.exporters.map((e, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "9px 14px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, minWidth: 18 }}>{i + 1}</span>
+                            <span style={{ fontSize: 13, color: C.ink }}>{e.country}</span>
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{fmtUsd(e.value_usd)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: "16px 14px", fontSize: 12, color: C.muted, textAlign: "center" }}>
+                        No export data
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Top Importers */}
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.border}`,
+                      fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 1, display: "flex", justifyContent: "space-between" }}>
+                      <span>TOP IMPORTERS</span>
+                      <span style={{ color: C.blue }}>↘ DEMAND</span>
+                    </div>
+                    {trade.importers && trade.importers.length > 0 ? (
+                      trade.importers.map((im, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "9px 14px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, minWidth: 18 }}>{i + 1}</span>
+                            <span style={{ fontSize: 13, color: C.ink }}>{im.country}</span>
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{fmtUsd(im.value_usd)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: "16px 14px", fontSize: 12, color: C.muted, textAlign: "center" }}>
+                        No import data
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+
+          {/* Footer */}
           <div style={{ background: C.bg, borderRadius: 9, padding: "12px 16px", fontSize: 12, color: C.muted,
             display: "flex", gap: 18, flexWrap: "wrap" }}>
-            <span>💬 Reddit threads — coming Stage 3</span>
-            <span>🌍 Trade flows — coming Stage 4</span>
+            <span>🔍 Search demand · 6 markets</span>
+            <span>📰 News · 6 markets</span>
+            <span>🌍 Trade flows · 20 nations (UN Comtrade, currently 1 of 20 ingredients cached)</span>
           </div>
         </>
       )}
