@@ -8,6 +8,7 @@ const MARKETS = [
   { code: "DE", label: "Germany" },
   { code: "FR", label: "France" },
   { code: "ES", label: "Spain" },
+  { code: "AE", label: "UAE" },
 ];
 
 const MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
