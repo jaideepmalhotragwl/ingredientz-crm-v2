@@ -13,7 +13,6 @@ const MARKETS = [
 
 const MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Convert DataForSEO's monthly_history (newest-first) into oldest-first chart points.
 function toSpark(history) {
   if (!Array.isArray(history)) return [];
   return history
@@ -51,16 +50,26 @@ function compBadge(comp) {
   );
 }
 
-// Call the Edge Function for one market. Returns { ok, top, all }.
+// Call the Edge Function via direct fetch — matches the curl pattern.
 async function fetchMarket(ingredient, marketCode) {
   try {
-    const { data, error } = await supabase.functions.invoke("dataforseo-keywords", {
-      body: { mode: "discover", seed: ingredient, market: marketCode, limit: 25 },
+    const url = `${supabase.supabaseUrl}/functions/v1/dataforseo-keywords`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabase.supabaseKey}`,
+        "apikey": supabase.supabaseKey,
+      },
+      body: JSON.stringify({ mode: "discover", seed: ingredient, market: marketCode, limit: 25 }),
     });
-    if (error) throw error;
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`HTTP ${res.status}: ${txt.slice(0, 100)}`);
+    }
+    const data = await res.json();
     if (!data?.ok) throw new Error(data?.error || "no data");
     const suggestions = data.suggestions || [];
-    // De-dupe synonym clusters by volume+cpc signature, keep first occurrence.
     const seen = new Set();
     const cleaned = [];
     for (const s of suggestions) {
@@ -77,18 +86,16 @@ async function fetchMarket(ingredient, marketCode) {
 
 export function ResearchConsoleTab() {
   const [ingredient, setIngredient] = useState("");
-  const [results, setResults] = useState({}); // { US: {state:"loading"|"done"|"error", ...} }
+  const [results, setResults] = useState({});
   const [searched, setSearched] = useState(false);
 
   function handleSubmit() {
     const term = ingredient.trim();
     if (!term) return;
     setSearched(true);
-    // Initialize all markets as loading
     const initial = {};
     MARKETS.forEach((m) => { initial[m.code] = { state: "loading" }; });
     setResults(initial);
-    // Fire all 5 in parallel; update each as it resolves (progressive render)
     MARKETS.forEach((m) => {
       fetchMarket(term, m.code).then((r) => {
         setResults((prev) => ({
@@ -105,7 +112,6 @@ export function ResearchConsoleTab() {
     if (e.key === "Enter") handleSubmit();
   }
 
-  // Unified keyword table across all done markets, sorted by volume desc.
   const unified = useMemo(() => {
     const rows = [];
     MARKETS.forEach((m) => {
@@ -122,7 +128,6 @@ export function ResearchConsoleTab() {
 
   return (
     <div>
-      {/* search bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 22, alignItems: "center" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8,
           border: `1px solid ${C.border}`, borderRadius: 9, padding: "8px 14px", background: C.card }}>
@@ -218,7 +223,6 @@ export function ResearchConsoleTab() {
             })}
           </div>
 
-          {/* unified table */}
           {unified.length > 0 && (
             <>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 10 }}>
@@ -253,7 +257,6 @@ export function ResearchConsoleTab() {
             </>
           )}
 
-          {/* footer note: stages 2/3/4 */}
           <div style={{ background: C.bg, borderRadius: 9, padding: "12px 16px", fontSize: 12, color: C.muted,
             display: "flex", gap: 18, flexWrap: "wrap" }}>
             <span>📰 News per country — coming Stage 2</span>
