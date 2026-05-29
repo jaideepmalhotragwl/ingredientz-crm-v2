@@ -89,24 +89,58 @@ async function fetchMarket(ingredient, marketCode) {
   }
 }
 
+// Stage 2: Fetch Google News for ingredient + market via news-fetch Edge Function.
+async function fetchNews(ingredient, marketCode) {
+  try {
+    const url = `${SUPA_URL}/functions/v1/news-fetch`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPA_ANON}`,
+      },
+      body: JSON.stringify({ ingredient, market: marketCode, limit: 5 }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { ok: true, headlines: data.headlines || [] };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e), headlines: [] };
+  }
+}
+
 export function ResearchConsoleTab() {
   const [ingredient, setIngredient] = useState("");
   const [results, setResults] = useState({});
+  const [news, setNews] = useState({});
   const [searched, setSearched] = useState(false);
 
   function handleSubmit() {
     const term = ingredient.trim();
     if (!term) return;
     setSearched(true);
-    const initial = {};
-    MARKETS.forEach((m) => { initial[m.code] = { state: "loading" }; });
-    setResults(initial);
+    const initialResults = {};
+    const initialNews = {};
+    MARKETS.forEach((m) => {
+      initialResults[m.code] = { state: "loading" };
+      initialNews[m.code] = { state: "loading" };
+    });
+    setResults(initialResults);
+    setNews(initialNews);
     MARKETS.forEach((m) => {
       fetchMarket(term, m.code).then((r) => {
         setResults((prev) => ({
           ...prev,
           [m.code]: r.ok
             ? { state: "done", top: r.top, all: r.all }
+            : { state: "error", error: r.error },
+        }));
+      });
+      fetchNews(term, m.code).then((r) => {
+        setNews((prev) => ({
+          ...prev,
+          [m.code]: r.ok
+            ? { state: "done", headlines: r.headlines }
             : { state: "error", error: r.error },
         }));
       });
@@ -262,9 +296,59 @@ export function ResearchConsoleTab() {
             </>
           )}
 
+          {/* Stage 2: News per country */}
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 10 }}>
+            Recent news · per country
+          </div>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 24 }}>
+            {MARKETS.map((m, mIdx) => {
+              const n = news[m.code];
+              const isLast = mIdx === MARKETS.length - 1;
+              if (!n || n.state === "loading") {
+                return (
+                  <div key={m.code} style={{ padding: "12px 16px", borderBottom: isLast ? "none" : `1px solid ${C.border}`,
+                    fontSize: 12, color: C.muted, display: "flex", justifyContent: "space-between" }}>
+                    <span>Loading {m.label} news…</span>
+                    <span style={{ fontSize: 10, fontWeight: 600 }}>{m.code}</span>
+                  </div>
+                );
+              }
+              const headlines = n.headlines || [];
+              if (headlines.length === 0) {
+                return (
+                  <div key={m.code} style={{ padding: "12px 16px", borderBottom: isLast ? "none" : `1px solid ${C.border}`,
+                    fontSize: 12, color: C.muted, display: "flex", justifyContent: "space-between" }}>
+                    <span>No recent news in {m.label}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600 }}>{m.code}</span>
+                  </div>
+                );
+              }
+              return (
+                <div key={m.code} style={{ borderBottom: isLast ? "none" : `1px solid ${C.border}` }}>
+                  <div style={{ padding: "8px 16px", background: C.bg, fontSize: 11, fontWeight: 700,
+                    color: C.muted, letterSpacing: 1, display: "flex", justifyContent: "space-between" }}>
+                    <span>{m.label.toUpperCase()}</span>
+                    <span>{headlines.length} {headlines.length === 1 ? "story" : "stories"}</span>
+                  </div>
+                  {headlines.map((h, i) => (
+                    <div key={i} style={{ padding: "10px 16px",
+                      borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                      <a href={h.link} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 13, fontWeight: 600, color: C.ink, textDecoration: "none", display: "block", marginBottom: 3 }}>
+                        {h.title}
+                      </a>
+                      <div style={{ fontSize: 11, color: C.muted }}>
+                        {h.source}{h.source && h.published ? " · " : ""}{h.published}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+
           <div style={{ background: C.bg, borderRadius: 9, padding: "12px 16px", fontSize: 12, color: C.muted,
             display: "flex", gap: 18, flexWrap: "wrap" }}>
-            <span>📰 News per country — coming Stage 2</span>
             <span>💬 Reddit threads — coming Stage 3</span>
             <span>🌍 Trade flows — coming Stage 4</span>
           </div>
