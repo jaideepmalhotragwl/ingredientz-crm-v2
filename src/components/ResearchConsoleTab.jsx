@@ -64,7 +64,6 @@ async function fetchMarket(ingredient, marketCode) {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${SUPA_ANON}`,
-        "apikey": SUPA_ANON,
       },
       body: JSON.stringify({ mode: "discover", seed: ingredient, market: marketCode, limit: 25 }),
     });
