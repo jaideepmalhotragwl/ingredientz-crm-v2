@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { supabase } from "../config.js";
 import { C } from "../constants.js";
 import { ResponsiveContainer, AreaChart, Area, Tooltip } from "recharts";
 
@@ -50,16 +49,22 @@ function compBadge(comp) {
   );
 }
 
+// Hardcoded Supabase URL + anon key (public values, same as in config.js).
+// We hardcode because supabase.supabaseUrl/supabaseKey return empty in the
+// built site — same issue we hit with the website acknowledgment email.
+const SUPA_URL = "https://eytoryygkxjslfvsqanl.supabase.co";
+const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dG9yeXlna3hqc2xmdnNxYW5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NDA5MTUsImV4cCI6MjA5MDMxNjkxNX0.txYTl0Q06mKSfWGmWc8cOTmCN46tLcxF9_7RhBUHBRY";
+
 // Call the Edge Function via direct fetch — matches the curl pattern.
 async function fetchMarket(ingredient, marketCode) {
   try {
-    const url = `${supabase.supabaseUrl}/functions/v1/dataforseo-keywords`;
+    const url = `${SUPA_URL}/functions/v1/dataforseo-keywords`;
     const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${supabase.supabaseKey}`,
-        "apikey": supabase.supabaseKey,
+        "Authorization": `Bearer ${SUPA_ANON}`,
+        "apikey": SUPA_ANON,
       },
       body: JSON.stringify({ mode: "discover", seed: ingredient, market: marketCode, limit: 25 }),
     });
