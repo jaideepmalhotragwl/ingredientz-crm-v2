@@ -72,22 +72,54 @@ export default function App() {
     if (data) {
       setEnquiries(p => [data, ...p]);
       showToast(`✓ Enquiry saved — ${row.customer_name}`);
-      const sender = getSenderEmail(row.assigned_to, users);
-      const u = users.find(x => x.name === row.assigned_to);
-      if (u?.email) {
-        sendEmail({
-          from: `Ingredientz CRM <${sender}>`, to: u.email,
-          subject: `New Enquiry Assigned — ${row.customer_name}`,
-          html: buildEmailHtml("New Enquiry Assigned", "#1877F2", [
-            `<b>Hi ${row.assigned_to?.split(" ")[0]},</b> a new enquiry has been assigned to you.`,
-            `<b>Customer:</b> ${row.customer_name} (${row.country || "—"})`,
-            `<b>Product:</b> ${(row.products || [])[0]?.name || "—"}`,
-            `<b>Priority:</b> ${row.priority}`,
-            `<b>Stage:</b> ${row.stage}`
-          ], "Ingredientz CRM · Auto-notification"),
-          text: `New enquiry assigned: ${row.customer_name}`
+
+      // Find suppliers mapped to this enquiry's products (normalised name match)
+      const norm = s => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+      const enqProducts = Array.isArray(row.products) ? row.products : [];
+      let supplierNames = [];
+      try {
+        const { data: maps } = await supabase
+          .from("supplier_products")
+          .select("suppliers(company,status),products(name)")
+          .eq("status", "active");
+        const wanted = new Set(enqProducts.map(p => norm(p.name)));
+        const found = new Set();
+        (maps || []).forEach(m => {
+          if (m.products?.name && wanted.has(norm(m.products.name)) &&
+              m.suppliers?.status === "active" && m.suppliers?.company) {
+            found.add(m.suppliers.company);
+          }
         });
-      }
+        supplierNames = [...found];
+      } catch (e) { console.error("RFQ supplier lookup:", e); }
+
+      // "RFQ ready to send" alert → assigned rep + business addresses
+      const repUser = users.find(x => x.name === row.assigned_to);
+      const recipients = [
+        repUser?.email,
+        "jaideep.malhotra@gmail.com",
+        "sales@ingredientz.co",
+        "procurement@ingredientz.co"
+      ].filter(Boolean);
+      const to = [...new Set(recipients)].join(", ");
+      const supplierLine = supplierNames.length
+        ? supplierNames.join(", ")
+        : "No mapped supplier yet — open the enquiry to add one";
+
+      sendEmail({
+        from: `Ingredientz CRM <sales@mail.ingredientz.co>`,
+        to,
+        subject: `RFQ ready to send — ${row.customer_name} [ENQ-${data.id}]`,
+        html: buildEmailHtml("RFQ Ready to Send", "#1877F2", [
+          `A new enquiry has been logged and an RFQ is ready to send.`,
+          `<b>Customer:</b> ${row.customer_name} (${row.country || "—"})`,
+          `<b>Products:</b> ${enqProducts.map(p => p.name).join(", ") || "—"}`,
+          `<b>Suppliers:</b> ${supplierLine}`,
+          `<b>Assigned to:</b> ${row.assigned_to || "—"}`,
+          `Open the enquiry in the CRM → Forward RFQ to Suppliers → review and send.`
+        ], "Ingredientz CRM · Auto-notification"),
+        text: `RFQ ready for ${row.customer_name} (ENQ-${data.id}). Suppliers: ${supplierLine}. Open the enquiry to review and send.`
+      });
     }
   }
   async function updateEnquiry(id, row) {
