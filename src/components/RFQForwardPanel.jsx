@@ -93,7 +93,8 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
       from: `Ingredientz Procurement <${PROCUREMENT_SENDER}>`,
       to: supplier.contact_email,
       subject, html, text: bodyText,
-      reply_to: PROCUREMENT_REPLY
+      reply_to: PROCUREMENT_REPLY,
+      bcc: ["sales@ingredientz.co", "procurement@ingredientz.co"]
     });
     // Log it
     const threadRow = { enquiry_id: enq.id, customer_name: enq.customer_name, direction: "auto-sent", subject, body: bodyText, from_email: PROCUREMENT_SENDER, to_email: supplier.contact_email, sent_at: new Date().toISOString() };
