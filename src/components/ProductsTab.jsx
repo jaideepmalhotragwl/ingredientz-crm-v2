@@ -9,8 +9,7 @@ import { Modal } from "./ui/Modal.jsx";
 import { ProductSupplierMapping } from "./ProductSupplierMapping.jsx";
 import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs";
 
-const TOGETHER_KEY = "tgp_v1_h2M7NTUWbFDKlx3nsVtBDV4j-GC87R9fNB1ff5pl39A";
-const TOGETHER_URL = "https://api.together.xyz/v1/images/generations";
+const TOGETHER_IMAGE_FN = "https://eytoryygkxjslfvsqanl.supabase.co/functions/v1/together-image";
 
 const FIXED_CATEGORIES = [
   "Botanical Extracts","Herbal Powders","Fruit Powders","Mushroom Extracts",
