@@ -60,14 +60,10 @@ function ImageManager({ productId, productName, categoryName, images, onImagesUp
     setProgress("Generating with AI…");
     try {
       const prompt = `Professional product photography of ${productName}, nutraceutical supplement ingredient, ${categoryName ? categoryName.toLowerCase() + ", " : ""}pure powder or extract, white background, studio lighting, soft shadows, photorealistic, high detail, clean minimal`;
-      const res = await fetch(TOGETHER_URL, {
+      const res = await fetch(TOGETHER_IMAGE_FN, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${TOGETHER_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "black-forest-labs/FLUX.1-schnell",
-          prompt, width: 512, height: 512, steps: 4, n: 1,
-          response_format: "b64_json"
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, width: 512, height: 512, steps: 4 })
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || "Generation failed"); }
       const data = await res.json();
