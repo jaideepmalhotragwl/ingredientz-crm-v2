@@ -3,11 +3,10 @@ import { daysUntil, fmtDate } from "../utils.js";
 import { Card } from "./ui/Card.jsx";
 import { KPI } from "./ui/KPI.jsx";
 import { StageBadge } from "./ui/Badges.jsx";
-import { TaskBoard } from "./TaskBoard.jsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function Dashboard({enquiries,users,tasks,onTaskAdd,onTaskUpdate,onTaskDelete}) {
+function Dashboard({enquiries,users}) {
   const active=enquiries.filter(e=>!["PO Received","Lost","No Response","Out of Scope"].includes(e.stage));
   const totalVal=enquiries.filter(e=>e.stage!=="Lost").reduce((s,e)=>s+(+e.expected_value||0),0);
   const poReceived=enquiries.filter(e=>e.stage==="PO Received").length;
@@ -64,7 +63,6 @@ function Dashboard({enquiries,users,tasks,onTaskAdd,onTaskUpdate,onTaskDelete}) 
         <div style={{textAlign:"right"}}><div style={{fontSize:11,color:C.amber,fontWeight:700}}>{daysUntil(e.expected_closure)}d left</div><div style={{fontSize:12,color:C.blue,fontWeight:700}}>{e.currency} {Number(e.expected_value||0).toLocaleString()}</div></div>
       </div>)}
     </Card>}
-    <TaskBoard tasks={tasks} users={users} onAdd={onTaskAdd} onUpdate={onTaskUpdate} onDelete={onTaskDelete}/>
   </div>;
 }
 
