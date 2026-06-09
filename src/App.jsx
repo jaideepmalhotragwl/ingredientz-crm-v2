@@ -20,6 +20,7 @@ import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
 import { ContentEngine }   from "./components/ContentEngine.jsx";
 import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
+import { TeamActivity }    from "./components/TeamActivity.jsx";
 
 export default function App() {
   const [loading, setLoading]       = useState(true);
@@ -29,6 +30,7 @@ export default function App() {
   const [suppliers, setSuppliers]   = useState([]);
   const [users, setUsers]           = useState([]);
   const [tasks, setTasks]           = useState([]);
+  const [dailyReports, setDailyReports] = useState([]);
   const [quotations, setQuotations] = useState([]);
   const [threads, setThreads]       = useState([]);
   const [orders, setOrders]         = useState([]);
@@ -55,14 +57,16 @@ export default function App() {
       dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
       dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
       dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
-      dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers")
-    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups]) => {
+      dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers"),
+      dbGet("daily_reports")
+    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts]) => {
       setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
       setTasks(tsks); setQuotations(quots); setThreads(thrs);
       setOrders(ords); setOrderItems(oItems);
       setSupplierPOs(spos); setSupplierPOItems(spoItems);
       setInvoices(invs); setPayments(pays); setShipments(ships);
       setStatusHistory(hist); setSuppliers(sups);
+      setDailyReports(drpts || []);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -185,6 +189,34 @@ export default function App() {
     await dbDelete("tasks", id);
     setTasks(p => p.filter(t => t.id !== id));
   }
+
+  // ── Daily report ops (Team Activity) ───────────────────────────────────────────
+  // Upsert one row per rep per day (table has unique(user_name, report_date)).
+  async function saveDailyReport(row) {
+    try {
+      const { data, error } = await supabase
+        .from("daily_reports")
+        .upsert(row, { onConflict: "user_name,report_date" })
+        .select()
+        .single();
+      if (error) {
+        console.error("saveDailyReport:", error);
+        showToast("✗ Could not save report", true);
+        return false;
+      }
+      setDailyReports(p => {
+        const without = p.filter(r => !(r.user_name === data.user_name && r.report_date === data.report_date));
+        return [data, ...without];
+      });
+      showToast("✓ Daily report saved");
+      return true;
+    } catch (e) {
+      console.error("saveDailyReport error:", e);
+      showToast("✗ Could not save report", true);
+      return false;
+    }
+  }
+
   async function addCustomer(row)    { const data = await dbInsert("customers", row); if (data) { setCustomers(p => [data, ...p]); showToast(`✓ ${row.company} added`); } }
   async function updateCustomer(id, row) { await dbUpdate("customers", id, row); setCustomers(p => p.map(c => c.id === id ? { ...c, ...row } : c)); }
   async function deleteCustomer(id)  { await dbDelete("customers", id); setCustomers(p => p.filter(c => c.id !== id)); }
@@ -435,12 +467,13 @@ export default function App() {
 
   async function handleRefresh() {
     setLoading(true);
-    const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups] = await Promise.all([
+    const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts] = await Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
       dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
       dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
       dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
-      dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers")
+      dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers"),
+      dbGet("daily_reports")
     ]);
     setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
     setTasks(tsks); setQuotations(quots); setThreads(thrs);
@@ -448,6 +481,7 @@ export default function App() {
     setSupplierPOs(spos); setSupplierPOItems(spoItems);
     setInvoices(invs); setPayments(pays); setShipments(ships);
     setStatusHistory(hist); setSuppliers(sups);
+    setDailyReports(drpts || []);
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
@@ -458,7 +492,7 @@ export default function App() {
     return d !== null && d <= 0 && !["PO Received", "Lost"].includes(e.stage);
   }).length;
   const TABS = [
-    { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: overdueTaskCount > 0 ? overdueTaskCount : 0 },
+    { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
     { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
     { id: "reminders",  label: "Reminders",  icon: "🔔", badge: overdueReminderCount },
@@ -470,6 +504,7 @@ export default function App() {
     { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
     { id: "marketintel", label: "Market Intel", icon: "📈", badge: 0 },
     { id: "research",   label: "Research",   icon: "🔬", badge: 0 },
+    { id: "teamactivity", label: "Team Activity", icon: "🎯", badge: overdueTaskCount > 0 ? overdueTaskCount : 0 },
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
   ];
   return (
@@ -538,7 +573,7 @@ export default function App() {
             {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </div>
         </div>
-        {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} />}
+        {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
         {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
@@ -550,6 +585,7 @@ export default function App() {
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
         {activeTab === "marketintel" && <MarketIntelTab />}
         {activeTab === "research"   && <ResearchConsoleTab />}
+        {activeTab === "teamactivity" && <TeamActivity users={users} tasks={tasks} dailyReports={dailyReports} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} onSaveReport={saveDailyReport} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
 
