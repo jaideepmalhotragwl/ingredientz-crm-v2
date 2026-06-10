@@ -21,7 +21,9 @@ function TaskBoard({tasks,users,onAdd,onUpdate,onDelete}) {
   async function save(){
     if(!form.task.trim()){alert("Task required.");return;}
     if(!form.owner){alert("Owner required.");return;}
-    editing?await onUpdate(editing.id,form):await onAdd(form);
+    // Empty date/notes must be sent as null — Postgres date columns reject "".
+    const payload={...form,due_date:form.due_date||null,notes:form.notes?form.notes:null};
+    editing?await onUpdate(editing.id,payload):await onAdd(payload);
     setDone(true);setTimeout(()=>{setDone(false);cancelForm();},900);
   }
   function cycleStatus(t){onUpdate(t.id,{status:TASK_STATUSES[(TASK_STATUSES.indexOf(t.status)+1)%TASK_STATUSES.length]});}
