@@ -16,25 +16,63 @@ export function reminderDate(amount, unit) {
   else if (unit === "weeks") d.setDate(d.getDate() + parseInt(amount) * 7);
   return d.toISOString().split("T")[0];
 }
-// ── Supabase helpers ──────────────────────────────────────────────────────────
+// ── Supabase helpers (with auto-retry on transient network drops) ──────────────
+// "TypeError: Load failed" / "network connection was lost" are intermittent fetch
+// failures. We retry those a couple of times; real query errors (e.g. a 400 from a
+// bad column) are returned immediately without retry.
+const isTransient = (err) =>
+  /load failed|networkerror|network connection|fetch failed|timeout|timed out|connection/i.test(
+    (err && (err.message || err.toString())) || ""
+  );
+
+async function withRetry(buildQuery, label, attempts = 3) {
+  let lastErr = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const { data, error } = await buildQuery();
+      if (!error) return { data, error: null };
+      lastErr = error;
+      if (!isTransient(error)) { console.error(label, error); return { data: null, error }; }
+    } catch (e) {
+      lastErr = e;
+      if (!isTransient(e)) { console.error(label, e); return { data: null, error: e }; }
+    }
+    // transient — wait and try again (0.4s, 0.8s …)
+    if (i < attempts - 1) await new Promise(r => setTimeout(r, 400 * (i + 1)));
+  }
+  console.error(label, lastErr);
+  return { data: null, error: lastErr };
+}
+
 export async function dbGet(table, filters = {}) {
-  let q = supabase.from(table).select("*").order("created_at", { ascending: false });
-  Object.entries(filters).forEach(([k, v]) => { q = q.eq(k, v); });
-  const { data, error } = await q;
-  if (error) { console.error(table, error); return []; }
+  const { data, error } = await withRetry(() => {
+    let q = supabase.from(table).select("*").order("created_at", { ascending: false });
+    Object.entries(filters).forEach(([k, v]) => { q = q.eq(k, v); });
+    return q;
+  }, `get ${table}`);
+  if (error) return [];
   return data || [];
 }
 export async function dbInsert(table, row) {
-  const { data, error } = await supabase.from(table).insert(row).select().single();
-  if (error) { console.error("insert", table, error); return null; }
+  const { data, error } = await withRetry(
+    () => supabase.from(table).insert(row).select().single(),
+    `insert ${table}`
+  );
+  if (error) return null;
   return data;
 }
 export async function dbUpdate(table, id, updates) {
-  const { error } = await supabase.from(table).update(updates).eq("id", id);
+  const { error } = await withRetry(
+    () => supabase.from(table).update(updates).eq("id", id),
+    `update ${table}`
+  );
   if (error) console.error("update", table, error);
 }
 export async function dbDelete(table, id) {
-  const { error } = await supabase.from(table).delete().eq("id", id);
+  const { error } = await withRetry(
+    () => supabase.from(table).delete().eq("id", id),
+    `delete ${table}`
+  );
   if (error) console.error("delete", table, error);
 }
 // ── Email helpers ─────────────────────────────────────────────────────────────
