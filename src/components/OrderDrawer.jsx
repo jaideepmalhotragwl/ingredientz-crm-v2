@@ -10,13 +10,13 @@ import {
   fmtMoney,
   getRouteLabel,
   getSourceLabel,
-  getSourceColor,
-  getOrderDocumentUrl
+  getSourceColor
 } from "../lib/orderUtils.js";
 import { SupplierPOForm }  from "./orders/SupplierPOForm.jsx";
 import { InvoiceForm }     from "./orders/InvoiceForm.jsx";
 import { PaymentForm }     from "./orders/PaymentForm.jsx";
 import { ShipmentForm }    from "./orders/ShipmentForm.jsx";
+import { DocumentTrail }   from "./DocumentTrail.jsx";
 
 const TABS = [
   { id: "items",     label: "Items & suppliers" },
@@ -157,17 +157,6 @@ export function OrderDrawer({
     background: "transparent", color: C.ink, border: `1px solid ${C.border}`,
     padding: "7px 12px", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer"
   };
-
-  // ── Document download handler ──────────────────────────────────────────────
-  async function handleDownload(path) {
-    if (!path) return;
-    const { url, error } = await getOrderDocumentUrl(path);
-    if (error || !url) {
-      alert("Failed to get download URL.");
-      return;
-    }
-    window.open(url, "_blank");
-  }
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -329,55 +318,14 @@ export function OrderDrawer({
             </>
           )}
 
-          {/* ─── Documents tab ─── */}
+          {/* ─── Documents tab (stage-by-stage trail) ─── */}
           {activeTab === "documents" && (
-            <>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 10 }}>Documents</div>
-
-              <DocSection title="Customer PO">
-                {order.customer_po_file_url ? (
-                  <DocRow label="Customer PO"
-                          subtitle={order.customer_po_number}
-                          onClick={() => handleDownload(order.customer_po_file_url)} />
-                ) : <EmptyDoc text="No customer PO file uploaded." />}
-              </DocSection>
-
-              <DocSection title="Supplier POs">
-                {supplierPOsForThisOrder.filter(po => po.pdf_url).length > 0 ? (
-                  supplierPOsForThisOrder.filter(po => po.pdf_url).map(po => {
-                    const supplier = suppliers?.find(s => s.id === po.supplier_id);
-                    return (
-                      <DocRow key={po.id}
-                              label={po.supplier_po_number}
-                              subtitle={`Supplier: ${supplier?.company || "—"}`}
-                              onClick={() => handleDownload(po.pdf_url)} />
-                    );
-                  })
-                ) : <EmptyDoc text="No supplier PO files uploaded." />}
-              </DocSection>
-
-              <DocSection title="Customer invoices">
-                {invoicesForThisOrder.filter(i => i.invoice_type === "customer" && i.file_url).length > 0 ? (
-                  invoicesForThisOrder.filter(i => i.invoice_type === "customer" && i.file_url).map(inv => (
-                    <DocRow key={inv.id}
-                            label={inv.invoice_number}
-                            subtitle={`${fmtMoney(inv.amount, inv.currency)} · ${inv.status}`}
-                            onClick={() => handleDownload(inv.file_url)} />
-                  ))
-                ) : <EmptyDoc text="No customer invoice files uploaded." />}
-              </DocSection>
-
-              <DocSection title="Supplier invoices">
-                {invoicesForThisOrder.filter(i => i.invoice_type === "supplier" && i.file_url).length > 0 ? (
-                  invoicesForThisOrder.filter(i => i.invoice_type === "supplier" && i.file_url).map(inv => (
-                    <DocRow key={inv.id}
-                            label={inv.invoice_number}
-                            subtitle={`${fmtMoney(inv.amount, inv.currency)} · ${inv.status}`}
-                            onClick={() => handleDownload(inv.file_url)} />
-                  ))
-                ) : <EmptyDoc text="No supplier invoice files uploaded." />}
-              </DocSection>
-            </>
+            <DocumentTrail
+              order={order}
+              supplierPOs={supplierPOsForThisOrder}
+              invoices={invoicesForThisOrder}
+              suppliers={suppliers}
+            />
           )}
 
           {/* ─── Payments tab ─── */}
@@ -587,36 +535,4 @@ function Metric({ label, value, sub }) {
       {sub && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{sub}</div>}
     </div>
   );
-}
-
-function DocSection({ title, children }) {
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function DocRow({ label, subtitle, onClick }) {
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        background: "white", border: `1px solid ${C.border}`, borderRadius: 7,
-        padding: "10px 12px", marginBottom: 6, cursor: "pointer",
-        display: "flex", justifyContent: "space-between", alignItems: "center"
-      }}
-    >
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>📄 {label}</div>
-        {subtitle && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{subtitle}</div>}
-      </div>
-      <div style={{ fontSize: 12, color: C.blue, fontWeight: 600 }}>Download ↓</div>
-    </div>
-  );
-}
-
-function EmptyDoc({ text }) {
-  return <div style={{ fontSize: 11, color: C.muted, fontStyle: "italic", padding: "8px 4px" }}>{text}</div>;
 }
