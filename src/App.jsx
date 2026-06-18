@@ -48,11 +48,11 @@ export default function App() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   async function refreshPendingApprovals() {
-    const { count } = await supabase
-      .from("supplier_products")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending_approval");
-    setPendingApprovals(count || 0);
+    const [sup, prod] = await Promise.all([
+      supabase.from("suppliers").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("supplier_products").select("id", { count: "exact", head: true }).eq("status", "pending_approval"),
+    ]);
+    setPendingApprovals((sup.count || 0) + (prod.count || 0));
   }
   useEffect(() => { refreshPendingApprovals(); }, []);
 
