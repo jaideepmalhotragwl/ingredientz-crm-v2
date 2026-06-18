@@ -14,6 +14,7 @@ import { CustomersTab }    from "./components/CustomersTab.jsx";
 import { ProductsTab }     from "./components/ProductsTab.jsx";
 import { CategoriesTab }   from "./components/CategoriesTab.jsx";
 import { SuppliersTab }    from "./components/SuppliersTab.jsx";
+import { ApprovalsTab }    from "./components/ApprovalsTab.jsx";
 import { UsersTab }        from "./components/UsersTab.jsx";
 import { DocumentsTab }    from "./components/DocumentsTab.jsx";
 import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
@@ -45,6 +46,15 @@ export default function App() {
   const [selectedEnq, setSelectedEnq] = useState(null);
   const [orderFormOpen, setOrderFormOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  async function refreshPendingApprovals() {
+    const { count } = await supabase
+      .from("supplier_products")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending_approval");
+    setPendingApprovals(count || 0);
+  }
+  useEffect(() => { refreshPendingApprovals(); }, []);
 
   function showToast(msg, err = false) {
     setToast({ msg, err });
@@ -482,6 +492,7 @@ export default function App() {
     setInvoices(invs); setPayments(pays); setShipments(ships);
     setStatusHistory(hist); setSuppliers(sups);
     setDailyReports(drpts || []);
+    refreshPendingApprovals();
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
@@ -500,6 +511,7 @@ export default function App() {
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
     { id: "categories", label: "Categories", icon: "📂", badge: 0 },
     { id: "suppliers",  label: "Suppliers",  icon: "🏭", badge: 0 },
+    { id: "approvals",  label: "Approvals",  icon: "✅", badge: pendingApprovals },
     { id: "documents",  label: "Documents",  icon: "📄", badge: 0 },
     { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
     { id: "marketintel", label: "Market Intel", icon: "📈", badge: 0 },
@@ -581,6 +593,7 @@ export default function App() {
         {activeTab === "products"   && <ProductsTab />}
         {activeTab === "categories" && <CategoriesTab />}
         {activeTab === "suppliers"  && <SuppliersTab />}
+        {activeTab === "approvals"  && <ApprovalsTab onChange={refreshPendingApprovals} />}
         {activeTab === "documents"  && <DocumentsTab />}
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
         {activeTab === "marketintel" && <MarketIntelTab />}
