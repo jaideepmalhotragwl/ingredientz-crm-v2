@@ -9,6 +9,9 @@ import { EnquiriesTab }    from "./components/EnquiriesTab.jsx";
 import { OrdersTab }       from "./components/OrdersTab.jsx";
 import { OrderForm }       from "./components/orders/OrderForm.jsx";
 import { OrderDrawer }     from "./components/OrderDrawer.jsx";
+import { SamplesTab }      from "./components/SamplesTab.jsx";
+import { SampleForm }      from "./components/SampleForm.jsx";
+import { SampleDrawer }    from "./components/SampleDrawer.jsx";
 import { RemindersTab }    from "./components/RemindersTab.jsx";
 import { CustomersTab }    from "./components/CustomersTab.jsx";
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -42,10 +45,13 @@ export default function App() {
   const [payments, setPayments]     = useState([]);
   const [shipments, setShipments]   = useState([]);
   const [statusHistory, setStatusHistory] = useState([]);
+  const [samples, setSamples]       = useState([]);
   const [activeTab, setActiveTab]   = useState("dashboard");
   const [selectedEnq, setSelectedEnq] = useState(null);
   const [orderFormOpen, setOrderFormOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [sampleFormOpen, setSampleFormOpen] = useState(false);
+  const [selectedSample, setSelectedSample] = useState(null);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   async function refreshPendingApprovals() {
     const [sup, prod] = await Promise.all([
@@ -68,8 +74,8 @@ export default function App() {
       dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
       dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
       dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers"),
-      dbGet("daily_reports")
-    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts]) => {
+      dbGet("daily_reports"), dbGet("samples")
+    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls]) => {
       setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
       setTasks(tsks); setQuotations(quots); setThreads(thrs);
       setOrders(ords); setOrderItems(oItems);
@@ -77,6 +83,7 @@ export default function App() {
       setInvoices(invs); setPayments(pays); setShipments(ships);
       setStatusHistory(hist); setSuppliers(sups);
       setDailyReports(drpts || []);
+      setSamples(smpls || []);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -286,6 +293,99 @@ export default function App() {
     if (data) { setThreads(p => [data, ...p]); showToast("✓ Email logged"); }
   }
 
+  // ── SAMPLE OPS ─────────────────────────────────────────────────────────────
+  async function addSample(row) {
+    const sample_number = `SR-${Date.now().toString().slice(-6)}`;
+    const seed = {
+      ...row,
+      sample_number,
+      stage: "Requested",
+      requested_at: new Date().toISOString(),
+      followup_loop: "supplier",
+      next_followup_at: new Date(Date.now() + 3 * 86400000).toISOString(),
+      followup_count: 0
+    };
+    const data = await dbInsert("samples", seed);
+    if (!data) { showToast("✗ Failed to create sample", true); return null; }
+    setSamples(p => [data, ...p]);
+    showToast(`✓ Sample ${sample_number} created`);
+    await sendSampleRequest(data);
+    return data;
+  }
+
+  // Fires the sample-request email to the supplier (same engine as the RFQ alert)
+  async function sendSampleRequest(sample) {
+    if (!sample?.supplier_email) { showToast("⚠ Sample saved — supplier has no email", true); return; }
+    const lines = [
+      `We'd like to request a sample for a customer evaluation.`,
+      `<b>Product:</b> ${sample.product_name}`,
+      `<b>Quantity:</b> ${sample.quantity || "—"} ${sample.unit || ""}`,
+      sample.purpose ? `<b>Purpose:</b> ${sample.purpose}` : null,
+      `<b>Ship to:</b> Ingredientz warehouse (address to follow on confirmation).`,
+      `Please confirm availability, lead time and share the CoA. Reply here and we'll coordinate shipment.`
+    ].filter(Boolean);
+    const res = await sendEmail({
+      from: `Ingredientz Procurement <procurement@mail.ingredientz.co>`,
+      to: sample.supplier_email,
+      subject: `Sample request — ${sample.product_name}${sample.quantity ? ` (${sample.quantity} ${sample.unit || ""})` : ""} [${sample.sample_number}]`,
+      html: buildEmailHtml("Sample Request", "#8E44AD", lines, "Ingredientz Procurement"),
+      text: `Sample request: ${sample.product_name} ${sample.quantity || ""} ${sample.unit || ""}. Please confirm availability, lead time and CoA, and ship to our warehouse.`,
+      reply_to: "procurement@ingredientz.co",
+      bcc: ["sales@ingredientz.co", "procurement@ingredientz.co"]
+    });
+    showToast(res?.id ? `✓ Sample request sent to ${sample.supplier_name}` : `✓ Sample request sent`);
+  }
+
+  async function updateSample(id, patch) {
+    await dbUpdate("samples", id, { ...patch, updated_at: new Date().toISOString() });
+    setSamples(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
+    if (selectedSample?.id === id) setSelectedSample(s => ({ ...s, ...patch }));
+  }
+
+  // Advance to a stage, stamping the right timestamp + setting the follow-up loop
+  async function advanceSample(sample, toStage, extra = {}) {
+    const now = new Date().toISOString();
+    const in3 = new Date(Date.now() + 3 * 86400000).toISOString();
+    const stamp = {
+      "Supplier Shipped":       { supplier_shipped_at: now },
+      "Received at Warehouse":  { received_warehouse_at: now, followup_loop: null, next_followup_at: null },
+      "Dispatched to Customer": { dispatched_customer_at: now, followup_loop: "customer", next_followup_at: in3, followup_count: 0 },
+      "Customer Received":      { customer_received_at: now },
+      "Feedback":               { feedback_at: now, followup_loop: null, next_followup_at: null }
+    }[toStage] || {};
+    await updateSample(sample.id, { stage: toStage, ...stamp, ...extra });
+    showToast(`✓ ${sample.sample_number} → ${toStage}`);
+  }
+
+  // Manual chase — sends immediately and bumps the schedule
+  async function sendSampleChase(sample, who) {
+    const to = who === "supplier" ? sample.supplier_email : sample.customer_email;
+    const name = who === "supplier" ? sample.supplier_name : sample.customer_name;
+    if (!to) { showToast(`⚠ No ${who} email on file`, true); return; }
+    const lines = who === "supplier"
+      ? [`Following up on our sample request for <b>${sample.product_name}</b>${sample.quantity ? ` (${sample.quantity} ${sample.unit || ""})` : ""}.`,
+         `Could you share dispatch status, tracking and the CoA? We're ready to receive at our warehouse.`]
+      : [`Following up on the <b>${sample.product_name}</b> sample we sent over.`,
+         `Have you had a chance to evaluate it? Your feedback helps us move things forward.`];
+    const res = await sendEmail({
+      from: who === "supplier" ? `Ingredientz Procurement <procurement@mail.ingredientz.co>` : `Ingredientz Sales <sales@mail.ingredientz.co>`,
+      to,
+      subject: who === "supplier"
+        ? `Following up — sample request ${sample.product_name} [${sample.sample_number}]`
+        : `Following up — your ${sample.product_name} sample [${sample.sample_number}]`,
+      html: buildEmailHtml(who === "supplier" ? "Sample Follow-up" : "Sample Feedback Request", "#F5A623", lines, "Ingredientz"),
+      text: lines.join(" ").replace(/<[^>]+>/g, ""),
+      reply_to: who === "supplier" ? "procurement@ingredientz.co" : "sales@ingredientz.co"
+    });
+    const count = (sample.followup_count || 0) + 1;
+    await updateSample(sample.id, {
+      followup_count: count,
+      last_followup_at: new Date().toISOString(),
+      next_followup_at: new Date(Date.now() + (count >= 2 ? 7 : 3) * 86400000).toISOString()
+    });
+    showToast(res?.id ? `✓ Chase sent to ${name}` : `✓ Chase sent`);
+  }
+
   // ── ORDER OPS ────────────────────────────────────────────────────────────────
   async function addOrder(orderRow, itemRows, poFile) {
     try {
@@ -477,13 +577,13 @@ export default function App() {
 
   async function handleRefresh() {
     setLoading(true);
-    const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts] = await Promise.all([
+    const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls] = await Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
       dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
       dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
       dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
       dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers"),
-      dbGet("daily_reports")
+      dbGet("daily_reports"), dbGet("samples")
     ]);
     setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
     setTasks(tsks); setQuotations(quots); setThreads(thrs);
@@ -492,6 +592,7 @@ export default function App() {
     setInvoices(invs); setPayments(pays); setShipments(ships);
     setStatusHistory(hist); setSuppliers(sups);
     setDailyReports(drpts || []);
+    setSamples(smpls || []);
     refreshPendingApprovals();
     setLoading(false);
     showToast("✓ Synced from Supabase");
@@ -506,6 +607,7 @@ export default function App() {
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
     { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
+    { id: "samples",    label: "Samples",    icon: "🧫", badge: 0 },
     { id: "reminders",  label: "Reminders",  icon: "🔔", badge: overdueReminderCount },
     { id: "customers",  label: "Customers",  icon: "🏢", badge: 0 },
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
@@ -588,6 +690,7 @@ export default function App() {
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
         {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} />}
+        {activeTab === "samples"    && <SamplesTab samples={samples} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
@@ -648,6 +751,26 @@ export default function App() {
           onAddPayment={addPayment}
           onAddShipment={addShipment}
           onUpdateShipment={updateShipment}
+        />
+      )}
+
+      {sampleFormOpen && (
+        <SampleForm
+          customers={customers}
+          suppliers={suppliers}
+          onClose={() => setSampleFormOpen(false)}
+          onSave={addSample}
+        />
+      )}
+
+      {selectedSample && (
+        <SampleDrawer
+          sample={selectedSample}
+          onClose={() => setSelectedSample(null)}
+          onAdvance={advanceSample}
+          onUpdate={updateSample}
+          onChase={sendSampleChase}
+          onResend={sendSampleRequest}
         />
       )}
 
