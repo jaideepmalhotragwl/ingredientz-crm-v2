@@ -24,7 +24,7 @@ import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
 import { ContentEngine }   from "./components/ContentEngine.jsx";
 import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
-import { TeamActivity }    from "./components/TeamActivity.jsx";
+import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
 
 export default function App() {
   const [loading, setLoading]       = useState(true);
@@ -207,7 +207,7 @@ export default function App() {
     setTasks(p => p.filter(t => t.id !== id));
   }
 
-  // ── Daily report ops (Team Activity) ───────────────────────────────────────────
+  // ── Daily report ops (Team Activity / Team Desk) ───────────────────────────────
   // Upsert one row per rep per day (table has unique(user_name, report_date)).
   async function saveDailyReport(row) {
     try {
@@ -603,6 +603,16 @@ export default function App() {
     const d = daysUntil(e.reminder_date);
     return d !== null && d <= 0 && !["PO Received", "Lost"].includes(e.stage);
   }).length;
+
+  // ── Team Desk: count reps who haven't filed today's Daily MIS (drives the tab badge) ──
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const reportedTodaySet = new Set(
+    dailyReports.filter(r => r.report_date === todayStr).map(r => r.user_name)
+  );
+  const missingReportCount = users.filter(
+    u => (u.active !== false) && u.name && !reportedTodaySet.has(u.name)
+  ).length;
+
   const TABS = [
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
@@ -618,7 +628,7 @@ export default function App() {
     { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
     { id: "marketintel", label: "Market Intel", icon: "📈", badge: 0 },
     { id: "research",   label: "Research",   icon: "🔬", badge: 0 },
-    { id: "teamactivity", label: "Team Activity", icon: "🎯", badge: overdueTaskCount > 0 ? overdueTaskCount : 0 },
+    { id: "teamdesk",   label: "Team Tracker", icon: "🎯", badge: missingReportCount },   // ── Team Tracker (replaces Team Activity) ──
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
   ];
   return (
@@ -701,7 +711,7 @@ export default function App() {
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
         {activeTab === "marketintel" && <MarketIntelTab />}
         {activeTab === "research"   && <ResearchConsoleTab />}
-        {activeTab === "teamactivity" && <TeamActivity users={users} tasks={tasks} dailyReports={dailyReports} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} onSaveReport={saveDailyReport} />}
+        {activeTab === "teamdesk"   && <TeamDesk supabase={supabase} users={users} dailyReports={dailyReports} onSaveReport={saveDailyReport} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
 
