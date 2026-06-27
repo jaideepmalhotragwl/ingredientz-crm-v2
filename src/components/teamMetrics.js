@@ -81,3 +81,29 @@ export function computeNudges(reports, reps) {
   // high severity first
   return out.sort((a, b) => (a.severity === "high" ? -1 : 1) - (b.severity === "high" ? -1 : 1));
 }
+
+// Pipeline nudges from the real enquiries + quotations tables:
+// "rep has enquiries logged but no quotation yet".
+const CLOSED_STAGES = ["PO Received", "Lost", "No Response", "Out of Scope"];
+export function computePipelineNudges(enquiries, quotations, reps) {
+  if (!enquiries?.length) return [];
+  const quoted = new Set((quotations || []).map((q) => q.enquiry_id));
+  const out = [];
+  reps.forEach((u) => {
+    const active = enquiries.filter((e) => e.assigned_to === u.name && !CLOSED_STAGES.includes(e.stage));
+    const unquoted = active.filter((e) => !quoted.has(e.id));
+    if (unquoted.length) {
+      const names = unquoted.slice(0, 4).map((e) => e.customer_name).filter(Boolean).join(", ");
+      out.push({
+        name: u.name,
+        severity: unquoted.length >= 3 ? "high" : "med",
+        title: `${unquoted.length} enquir${unquoted.length > 1 ? "ies" : "y"} not yet quoted`,
+        detail: `Open enquiries with no quotation sent${names ? `: ${names}` : ""}.`,
+      });
+    }
+  });
+  return out;
+}
+
+export const mergeNudges = (a, b) =>
+  [...a, ...b].sort((x, y) => (x.severity === "high" ? -1 : 1) - (y.severity === "high" ? -1 : 1));

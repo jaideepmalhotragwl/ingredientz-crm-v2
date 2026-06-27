@@ -13,6 +13,7 @@ import { TaskBoard } from "./TaskBoard.jsx";
 import {
   TARGETS, NUMERIC, todayISO, num, daysAgo, relTime,
   sumReports, runningXY, colorFor, initials, computeNudges,
+  computePipelineNudges, mergeNudges,
 } from "./teamMetrics.js";
 
 const sha256 = async (file) => {
@@ -33,10 +34,13 @@ const VIEWS = [
   ["submit", "Submit report"], ["supervisor", "Supervisor"], ["tasks", "Tasks"],
 ];
 
-export function TeamDesk({ supabase, users, dailyReports, onSaveReport, tasks, onTaskAdd, onTaskUpdate, onTaskDelete }) {
+export function TeamDesk({ supabase, users, dailyReports, onSaveReport, tasks, onTaskAdd, onTaskUpdate, onTaskDelete, enquiries = [], quotations = [] }) {
   const reps = useMemo(() => users.filter((u) => u.active), [users]);
   const [view, setView] = useState("feed");
-  const nudges = useMemo(() => computeNudges(dailyReports, reps), [dailyReports, reps]);
+  const nudges = useMemo(
+    () => mergeNudges(computeNudges(dailyReports, reps), computePipelineNudges(enquiries, quotations, reps)),
+    [dailyReports, reps, enquiries, quotations]
+  );
 
   const pill = (active) => ({
     padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: active ? 700 : 500,
@@ -58,7 +62,7 @@ export function TeamDesk({ supabase, users, dailyReports, onSaveReport, tasks, o
       {view === "summary"    && <Summary reports={dailyReports} reps={reps} />}
       {view === "nudges"     && <Nudges nudges={nudges} reps={reps} />}
       {view === "submit"     && <Submit supabase={supabase} reps={reps} dailyReports={dailyReports} onSaveReport={onSaveReport} />}
-      {view === "supervisor" && <Supervisor supabase={supabase} />}
+      {view === "supervisor" && <Supervisor supabase={supabase} reps={reps} />}
       {view === "tasks"      && <TaskBoard tasks={tasks} users={users} onAdd={onTaskAdd} onUpdate={onTaskUpdate} onDelete={onTaskDelete} />}
     </div>
   );
@@ -383,19 +387,23 @@ function Submit({ supabase, reps, dailyReports, onSaveReport }) {
   );
 }
 
-/* ---------- SUPERVISOR ---------- */
-function Supervisor({ supabase }) {
+/* ---------- SUPERVISOR (per-rep chat + weekly report) ---------- */
+function Supervisor({ supabase, reps }) {
+  const [scope, setScope] = useState("team");   // "team" or a rep name
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [weekly, setWeekly] = useState("");
+
+  useEffect(() => { setMessages([]); }, [scope]);
 
   async function send(text) {
     const history = messages;
     setMessages((m) => [...m, { role: "user", text }]); setInput(""); setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("team-supervisor", {
-        body: { question: text, history: history.map((m) => ({ role: m.role, content: m.text })) },
-      });
+      const body = { question: text, history: history.map((m) => ({ role: m.role, content: m.text })) };
+      if (scope !== "team") body.repName = scope;
+      const { data, error } = await supabase.functions.invoke("team-supervisor", { body });
       if (error) throw error;
       setMessages((m) => [...m, { role: "assistant", text: data.reply || "(no response)" }]);
     } catch (e) {
@@ -403,16 +411,51 @@ function Supervisor({ supabase }) {
     }
     setLoading(false);
   }
-  const prompts = ["Review today and flag the biggest gap.", "Who missed target today?", "Draft questions for the rep furthest behind."];
+
+  async function sendWeekly() {
+    setWeekly("Sending…");
+    try {
+      const { data, error } = await supabase.functions.invoke("weekly-report", { body: {} });
+      if (error) throw error;
+      setWeekly(`✓ Weekly report sent to ${data?.sent ?? "the team"}`);
+    } catch (e) {
+      setWeekly("⚠ Couldn't send — check the weekly-report function.");
+    }
+    setTimeout(() => setWeekly(""), 5000);
+  }
+
+  const personal = scope !== "team";
+  const prompts = personal
+    ? ["How am I doing this week?", "Which enquiries should I quote next?", "What should I focus on tomorrow?"]
+    : ["Review today and flag the biggest gap.", "Who has enquiries sitting without a quotation?", "Draft questions for the rep furthest behind."];
 
   return (
-    <Card style={{ padding: 16, display: "flex", flexDirection: "column", minHeight: 420 }}>
+    <Card style={{ padding: 16, display: "flex", flexDirection: "column", minHeight: 440 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: 12, color: C.muted }}>Viewing as</span>
+        <select value={scope} onChange={(e) => setScope(e.target.value)}
+          style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 13, color: C.ink, background: "white" }}>
+          <option value="team">Whole team (supervisor view)</option>
+          {reps.map((u) => <option key={u.id} value={u.name}>{u.name}</option>)}
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {weekly && <span style={{ fontSize: 12, fontWeight: 600, color: weekly.startsWith("⚠") ? C.red : C.green }}>{weekly}</span>}
+          <Btn label="✉ Email weekly report" onClick={sendWeekly} />
+        </div>
+      </div>
+
       <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
         {messages.length === 0 && (
-          <div style={{ textAlign: "center", padding: "30px 10px" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>Supervisor</div>
-            <div style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>Reviews the team's reports and asks the right questions on your behalf.</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 360, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", padding: "28px 10px" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+              {personal ? `${scope.split(" ")[0]}'s coach` : "Supervisor"}
+            </div>
+            <div style={{ fontSize: 13, color: C.muted, marginBottom: 16, maxWidth: 380, margin: "0 auto 16px" }}>
+              {personal
+                ? "Ask about your own activity, targets and which enquiries to quote next."
+                : "Reviews the team's reports and pipeline, and asks the right questions on your behalf."}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 380, margin: "0 auto" }}>
               {prompts.map((p) => (
                 <button key={p} onClick={() => send(p)}
                   style={{ textAlign: "left", fontSize: 13, padding: "9px 13px", borderRadius: 8, border: `1px solid ${C.border}`, background: "white", color: C.ink, cursor: "pointer" }}>{p}</button>
@@ -429,11 +472,13 @@ function Supervisor({ supabase }) {
               </div>
             </div>
           ))}
-          {loading && <div style={{ fontSize: 13, color: C.muted }}>Reviewing the team…</div>}
+          {loading && <div style={{ fontSize: 13, color: C.muted }}>Thinking…</div>}
         </div>
       </div>
+
       <div style={{ display: "flex", gap: 8 }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask the supervisor…"
+        <input value={input} onChange={(e) => setInput(e.target.value)}
+          placeholder={personal ? "Ask about your numbers…" : "Ask the supervisor…"}
           onKeyDown={(e) => { if (e.key === "Enter" && input.trim() && !loading) send(input.trim()); }}
           style={{ flex: 1, padding: "9px 13px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13.5, color: C.ink }} />
         <Btn label="Send" onClick={() => input.trim() && !loading && send(input.trim())} disabled={!input.trim() || loading} />
