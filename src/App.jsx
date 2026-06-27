@@ -711,7 +711,7 @@ export default function App() {
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
         {activeTab === "marketintel" && <MarketIntelTab />}
         {activeTab === "research"   && <ResearchConsoleTab />}
-        {activeTab === "teamdesk"   && <TeamDesk supabase={supabase} users={users} dailyReports={dailyReports} onSaveReport={saveDailyReport} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} />}
+        {activeTab === "teamdesk"   && <TeamDesk supabase={supabase} users={users} dailyReports={dailyReports} onSaveReport={saveDailyReport} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} enquiries={enquiries} quotations={quotations} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
 
