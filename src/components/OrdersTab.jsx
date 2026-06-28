@@ -10,6 +10,14 @@ import {
   getSourceColor
 } from "../lib/orderUtils.js";
 
+// ── FX: USD-equivalent rates. Update these as rates move. ───────────────────
+// (1 unit of the currency = this many USD)
+const FX = { USD: 1, EUR: 1.08, INR: 0.0117 };
+function toUSD(amount, currency) {
+  const r = FX[(currency || "USD").toUpperCase()] ?? 1;
+  return (parseFloat(amount) || 0) * r;
+}
+
 export function OrdersTab({ orders, customers, onSelect, onNew }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -18,21 +26,30 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
 
   // ── Metrics ───────────────────────────────────────────────────────────────
   const metrics = useMemo(() => {
-    const active = orders.filter(o => !["Delivered", "Cancelled"].includes(o.status));
-    const awaitingPayment = orders
-      .filter(o => ["Invoiced", "Confirmed", "Suppliers Assigned"].includes(o.status))
-      .reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
-    const inTransit = orders.filter(o => o.status === "Shipped").length;
-    const now = new Date();
-    const thisMonth = orders
-      .filter(o => {
-        const d = new Date(o.created_at);
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      })
-      .reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+    // Order book = every order except Cancelled, summed currency-aware.
+    const book = orders.filter(o => o.status !== "Cancelled");
+    const byCur = {};
+    let bookUSD = 0;
+    book.forEach(o => {
+      const cur = (o.currency || "USD").toUpperCase();
+      const amt = parseFloat(o.total_amount) || 0;
+      byCur[cur] = (byCur[cur] || 0) + amt;
+      bookUSD += toUSD(amt, cur);
+    });
 
-    return { active: active.length, awaitingPayment, inTransit, thisMonth };
+    const active = orders.filter(o => !["Delivered", "Cancelled"].includes(o.status));
+    const awaitingUSD = orders
+      .filter(o => ["Invoiced", "Confirmed", "Suppliers Assigned"].includes(o.status))
+      .reduce((sum, o) => sum + toUSD(o.total_amount, o.currency), 0);
+    const inTransit = orders.filter(o => o.status === "Shipped").length;
+
+    return { active: active.length, awaitingUSD, inTransit, bookUSD, byCur };
   }, [orders]);
+
+  const converted = Object.keys(metrics.byCur).some(c => c !== "USD");
+  const curBreakdown = Object.entries(metrics.byCur)
+    .map(([c, v]) => `${c} ${Math.round(v).toLocaleString()}`)
+    .join("  ·  ");
 
   // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -80,9 +97,21 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       {/* Metrics row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
         <Metric label="Active orders" value={metrics.active} />
-        <Metric label="Awaiting payment" value={fmtMoneyShort(metrics.awaitingPayment)} />
+        <Metric label="Awaiting payment" value={fmtMoneyShort(metrics.awaitingUSD)} />
         <Metric label="In transit" value={metrics.inTransit} />
-        <Metric label="This month" value={fmtMoneyShort(metrics.thisMonth)} />
+        <Metric
+          label="Order book (all orders)"
+          value={
+            <span style={{ display: "block" }}>
+              <span>{converted ? "≈ " : ""}{fmtMoneyShort(metrics.bookUSD)}</span>
+              {Object.keys(metrics.byCur).length > 1 && (
+                <span style={{ display: "block", fontSize: 10, color: C.muted, fontWeight: 500, marginTop: 3, letterSpacing: 0 }}>
+                  {curBreakdown}
+                </span>
+              )}
+            </span>
+          }
+        />
       </div>
 
       {/* Toolbar */}
