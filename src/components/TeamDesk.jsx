@@ -506,14 +506,15 @@ function Briefing({ supabase, reps }) {
   useEffect(() => { load(); }, []);
 
   async function generate() {
-    setGen("Generating…");
+    setGen("Generating… (~20s)");
     try {
-      const { error } = await supabase.functions.invoke("morning-briefing", { body: {} });
+      const { data, error } = await supabase.functions.invoke("morning-briefing", { body: {} });
       if (error) throw error;
-      setGen("✓ Sent & saved");
-      load();
+      await load();   // reload only after the function has returned + saved
+      const n = data?.briefs_stored ?? 0;
+      setGen(n ? `✓ ${n} briefings ready` : "⚠ Ran, but saved 0 — check the function logs");
     } catch (e) { setGen("⚠ Couldn't generate — check the morning-briefing function."); }
-    setTimeout(() => setGen(""), 4000);
+    setTimeout(() => setGen(""), 5000);
   }
 
   const byRep = reps.map((u) => ({ u, brief: briefs.find((b) => b.user_name === u.name) }));
