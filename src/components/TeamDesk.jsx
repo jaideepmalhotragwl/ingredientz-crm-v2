@@ -31,7 +31,7 @@ const fileToBase64 = (file) =>
 
 const VIEWS = [
   ["feed", "Feed"], ["summary", "Summary"], ["nudges", "Nudges"],
-  ["submit", "Submit report"], ["supervisor", "Supervisor"], ["tasks", "Tasks"],
+  ["briefing", "Briefing"], ["submit", "Submit report"], ["supervisor", "Supervisor"], ["tasks", "Tasks"],
 ];
 
 export function TeamDesk({ supabase, users, dailyReports, onSaveReport, tasks, onTaskAdd, onTaskUpdate, onTaskDelete, enquiries = [], quotations = [] }) {
@@ -61,6 +61,7 @@ export function TeamDesk({ supabase, users, dailyReports, onSaveReport, tasks, o
       {view === "feed"       && <Feed supabase={supabase} reports={dailyReports} reps={reps} />}
       {view === "summary"    && <Summary reports={dailyReports} reps={reps} />}
       {view === "nudges"     && <Nudges nudges={nudges} reps={reps} />}
+      {view === "briefing"   && <Briefing supabase={supabase} reps={reps} />}
       {view === "submit"     && <Submit supabase={supabase} reps={reps} dailyReports={dailyReports} onSaveReport={onSaveReport} />}
       {view === "supervisor" && <Supervisor supabase={supabase} reps={reps} />}
       {view === "tasks"      && <TaskBoard tasks={tasks} users={users} onAdd={onTaskAdd} onUpdate={onTaskUpdate} onDelete={onTaskDelete} />}
@@ -484,5 +485,64 @@ function Supervisor({ supabase, reps }) {
         <Btn label="Send" onClick={() => input.trim() && !loading && send(input.trim())} disabled={!input.trim() || loading} />
       </div>
     </Card>
+  );
+}
+
+/* ---------- MORNING BRIEFING ---------- */
+function Briefing({ supabase, reps }) {
+  const today = todayISO();
+  const [briefs, setBriefs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [gen, setGen] = useState("");
+
+  async function load() {
+    setLoading(true);
+    try {
+      const { data } = await supabase.from("morning_briefings").select("*").eq("brief_date", today);
+      setBriefs(data || []);
+    } catch (e) { setBriefs([]); }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function generate() {
+    setGen("Generating…");
+    try {
+      const { error } = await supabase.functions.invoke("morning-briefing", { body: {} });
+      if (error) throw error;
+      setGen("✓ Sent & saved");
+      load();
+    } catch (e) { setGen("⚠ Couldn't generate — check the morning-briefing function."); }
+    setTimeout(() => setGen(""), 4000);
+  }
+
+  const byRep = reps.map((u) => ({ u, brief: briefs.find((b) => b.user_name === u.name) }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
+          Today's briefing <span style={{ fontWeight: 400, color: C.muted, fontSize: 12 }}>· {today}</span>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {gen && <span style={{ fontSize: 12, fontWeight: 600, color: gen.startsWith("⚠") ? C.red : C.green }}>{gen}</span>}
+          <Btn label="⚡ Generate now" onClick={generate} />
+        </div>
+      </div>
+
+      {loading && <Card style={{ padding: 20, textAlign: "center", color: C.muted }}>Loading…</Card>}
+
+      {!loading && byRep.map(({ u, brief }) => (
+        <Card key={u.id} style={{ padding: 15 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: brief ? 10 : 0 }}>
+            <Avatar name={u.name} reps={reps} />
+            <div style={{ fontWeight: 700, color: C.ink, fontSize: 14 }}>{u.name.split(" ")[0]}'s plan</div>
+          </div>
+          {brief
+            ? <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{brief.plan}</div>
+            : <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic" }}>No briefing generated yet today.</div>}
+        </Card>
+      ))}
+    </div>
   );
 }
