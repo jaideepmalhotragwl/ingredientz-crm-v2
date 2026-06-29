@@ -6,10 +6,10 @@ import { StageBadge } from "./ui/Badges.jsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function Dashboard({enquiries,users}) {
+function Dashboard({enquiries,users,orders=[]}) {
   const active=enquiries.filter(e=>!["PO Received","Lost","No Response","Out of Scope"].includes(e.stage));
   const totalVal=enquiries.filter(e=>e.stage!=="Lost").reduce((s,e)=>s+(+e.expected_value||0),0);
-  const poReceived=enquiries.filter(e=>e.stage==="PO Received").length;
+  const ordersCount=orders.length;
   const overdueEnq=enquiries.filter(e=>{const d=daysUntil(e.reminder_date);return d!==null&&d<=0&&!["PO Received","Lost"].includes(e.stage);});
   const closingSoon=enquiries.filter(e=>{const d=daysUntil(e.expected_closure);return d!==null&&d<=7&&d>=0&&!["PO Received","Lost"].includes(e.stage);});
   const stageCounts=STAGES.map((s,i)=>({stage:s.split(" ")[0],count:enquiries.filter(e=>e.stage===s).length,color:STAGE_COLORS[i]})).filter(s=>s.count>0);
@@ -20,7 +20,7 @@ function Dashboard({enquiries,users}) {
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
       <KPI label="Total Enquiries" value={enquiries.length} sub={`${active.length} active`}/>
       <KPI label="Pipeline Value" value={`$${Math.round(totalVal/1000)}K`} sub="Excl. lost" accent={C.blue}/>
-      <KPI label="PO Received" value={poReceived} sub="Orders confirmed" accent={C.green}/>
+      <KPI label="Orders" value={ordersCount} sub="Total orders" accent={C.green}/>
       <KPI label="Overdue Follow-ups" value={overdueEnq.length} sub={`${closingSoon.length} closing this week`} accent={overdueEnq.length>0?C.red:C.green}/>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:12}}>
