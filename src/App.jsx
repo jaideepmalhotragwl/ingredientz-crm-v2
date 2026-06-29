@@ -697,7 +697,7 @@ export default function App() {
             {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </div>
         </div>
-        {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} />}
+        {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} orders={orders} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
         {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} />}
         {activeTab === "samples"    && <SamplesTab samples={samples} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} />}
