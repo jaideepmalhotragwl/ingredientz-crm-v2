@@ -133,7 +133,9 @@ export default function App() {
         subject: `RFQ ready to send — ${row.customer_name} [ENQ-${data.id}]`,
         html: buildEmailHtml("RFQ Ready to Send", "#1877F2", [
           `A new enquiry has been logged and an RFQ is ready to send.`,
+          `<b>Ref:</b> ENQ-${data.id}${row.quarter_ref ? ` · ${row.quarter_ref}` : ""}`,
           `<b>Customer:</b> ${row.customer_name} (${row.country || "—"})`,
+          `<b>Customer email:</b> ${row.customer_email || "—"}`,
           `<b>Products:</b> ${enqProducts.map(p => p.name).join(", ") || "—"}`,
           `<b>Suppliers:</b> ${supplierLine}`,
           `<b>Assigned to:</b> ${row.assigned_to || "—"}`,
@@ -141,6 +143,27 @@ export default function App() {
         ], "Ingredientz CRM · Auto-notification"),
         text: `RFQ ready for ${row.customer_name} (ENQ-${data.id}). Suppliers: ${supplierLine}. Open the enquiry to review and send.`
       });
+
+      // ── Auto-acknowledgement to the customer (if we have their email) ──
+      const custEmail = row.customer_email
+        || customers.find(c => String(c.id) === String(row.customer_id))?.email
+        || "";
+      if (custEmail) {
+        const firstName = (row.contact_person || "").split(" ")[0];
+        sendEmail({
+          from: `Ingredientz <sales@mail.ingredientz.co>`,
+          to: custEmail,
+          subject: `Thank you for your enquiry — Ingredientz`,
+          html: buildEmailHtml("Thank you for your enquiry", "#1877F2", [
+            `${firstName ? `Dear ${firstName},` : "Hello,"}`,
+            `Thank you for reaching out to <b>Ingredientz</b>. We've received your enquiry${enqProducts.length ? ` for <b>${enqProducts.map(p => p.name).join(", ")}</b>` : ""} and our team is already looking into it.`,
+            `One of our specialists will get back to you shortly with the next steps. If you'd like to add anything in the meantime, simply reply to this email.`,
+            `Warm regards,<br>Team Ingredientz`
+          ], "Ingredientz · Nutraceutical Ingredients"),
+          text: `${firstName ? `Dear ${firstName},` : "Hello,"}\n\nThank you for reaching out to Ingredientz. We've received your enquiry and our team is already looking into it. We'll get back to you shortly with next steps.\n\nWarm regards,\nTeam Ingredientz`,
+          reply_to: "sales@ingredientz.co"
+        });
+      }
     }
   }
   async function updateEnquiry(id, row) {
