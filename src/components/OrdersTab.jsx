@@ -23,6 +23,7 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
   const [statusFilter, setStatusFilter] = useState("All");
   const [customerFilter, setCustomerFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
+  const [sort, setSort] = useState({ k: "customer_po_date", d: -1 });  // default: newest PO first
 
   // ── Metrics ───────────────────────────────────────────────────────────────
   const metrics = useMemo(() => {
@@ -53,7 +54,7 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
 
   // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    return orders.filter(o => {
+    const rows = orders.filter(o => {
       if (statusFilter !== "All" && o.status !== statusFilter) return false;
       if (sourceFilter !== "All" && o.source !== sourceFilter.toLowerCase()) return false;
       if (customerFilter !== "All" && String(o.customer_id) !== String(customerFilter)) return false;
@@ -65,7 +66,21 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       }
       return true;
     });
-  }, [orders, search, statusFilter, customerFilter, sourceFilter, customers]);
+    const cust = id => customers.find(c => c.id === id)?.company || "";
+    return rows.sort((a, b) => {
+      let va, vb;
+      if (sort.k === "value") { va = toUSD(a.total_amount, a.currency); vb = toUSD(b.total_amount, b.currency); }
+      else if (sort.k === "customer") { va = cust(a.customer_id); vb = cust(b.customer_id); }
+      else { va = a[sort.k] ?? ""; vb = b[sort.k] ?? ""; }
+      if (typeof va === "number") return (va - vb) * sort.d;
+      // dates & strings — empty values sink to the bottom
+      if (!va && vb) return 1;
+      if (va && !vb) return -1;
+      return String(va).localeCompare(String(vb)) * sort.d;
+    });
+  }, [orders, search, statusFilter, customerFilter, sourceFilter, customers, sort]);
+
+  function toggleSort(k) { setSort(s => s.k === k ? { k, d: s.d * -1 } : { k, d: -1 }); }
 
   function getCustomerName(id) {
     return customers.find(c => c.id === id)?.company || "—";
@@ -150,17 +165,19 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.bg }}>
-                <Th>Order #</Th>
-                <Th>Customer</Th>
-                <Th>Customer PO</Th>
-                <Th>Value</Th>
-                <Th>Source</Th>
-                <Th>Status</Th>
-                <Th>Updated</Th>
+                <Th>#</Th>
+                <ThSort k="order_number" label="Order #" sort={sort} onSort={toggleSort} />
+                <ThSort k="customer" label="Customer" sort={sort} onSort={toggleSort} />
+                <ThSort k="customer_po_number" label="Customer PO" sort={sort} onSort={toggleSort} />
+                <ThSort k="customer_po_date" label="PO Date" sort={sort} onSort={toggleSort} />
+                <ThSort k="value" label="Value" sort={sort} onSort={toggleSort} />
+                <ThSort k="source" label="Source" sort={sort} onSort={toggleSort} />
+                <ThSort k="status" label="Status" sort={sort} onSort={toggleSort} />
+                <ThSort k="updated_at" label="Updated" sort={sort} onSort={toggleSort} />
               </tr>
             </thead>
             <tbody>
-              {filtered.map(o => (
+              {filtered.map((o, i) => (
                 <tr
                   key={o.id}
                   onClick={() => onSelect(o)}
@@ -168,11 +185,13 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
                   onMouseEnter={e => e.currentTarget.style.background = C.bg}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                 >
+                  <Td style={{ color: C.faded, fontSize: 12, fontFamily: "monospace" }}>{i + 1}</Td>
                   <Td>
                     <span style={{ fontFamily: "monospace", fontSize: 12 }}>{o.order_number}</span>
                   </Td>
                   <Td>{getCustomerName(o.customer_id)}</Td>
                   <Td style={{ color: C.muted }}>{o.customer_po_number || "—"}</Td>
+                  <Td style={{ color: C.muted, fontSize: 12 }}>{o.customer_po_date ? fmtDate(o.customer_po_date) : "—"}</Td>
                   <Td>{fmtMoney(o.total_amount, o.currency)}</Td>
                   <Td>
                     <span style={pill(getSourceColor(o.source))}>{getSourceLabel(o.source)}</span>
@@ -210,6 +229,22 @@ function Th({ children }) {
       textAlign: "left", padding: "10px 14px", fontWeight: 600,
       fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5
     }}>{children}</th>
+  );
+}
+
+function ThSort({ k, label, sort, onSort }) {
+  const active = sort.k === k;
+  return (
+    <th
+      onClick={() => onSort(k)}
+      style={{
+        textAlign: "left", padding: "10px 14px", fontWeight: 700,
+        fontSize: 11, color: active ? C.blue : C.muted, textTransform: "uppercase",
+        letterSpacing: 0.5, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap"
+      }}
+    >
+      {label}{active ? (sort.d === 1 ? " ↑" : " ↓") : ""}
+    </th>
   );
 }
 
