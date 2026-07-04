@@ -39,6 +39,7 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
   const [search,setSearch]=useState("");
   const [filterStage,setFilterStage]=useState("");
   const [filterAssignee,setFilterAssignee]=useState("");
+  const [filterBand,setFilterBand]=useState("");   // "" = all deal sizes
   const [sort,setSort]=useState({k:"created_at",d:-1});
 
   // Latest quotation total per enquiry_id (fallback when no manual value is set)
@@ -66,6 +67,12 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
 
   const filtered=enquiries
     .filter(e=>(!filterStage||e.stage===filterStage)&&(!filterAssignee||e.assigned_to===filterAssignee))
+    .filter(e=>{
+      if(!filterBand) return true;
+      const v=resolveValue(e);
+      if(!v) return filterBand==="none";           // "No value" bucket
+      return bandFor(toUSD(v.amount,v.currency)).label===filterBand;
+    })
     .filter(e=>!search||[e.customer_name,(e.products||[])[0]?.name||"",e.assigned_to,e.country].join(" ").toLowerCase().includes(search.toLowerCase()))
     .sort((a,b)=>{
       // Value column sorts by USD-equivalent of the resolved value
@@ -92,6 +99,11 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{marginLeft:"auto",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 12px",color:C.ink,fontSize:12,outline:"none",width:170}}/>
         <select value={filterStage} onChange={e=>setFilterStage(e.target.value)} style={selStyle}><option value="">All Stages</option>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
         <select value={filterAssignee} onChange={e=>setFilterAssignee(e.target.value)} style={selStyle}><option value="">All Team</option>{users.filter(u=>u.active).map(u=><option key={u.id} value={u.name}>{u.name.split(" ")[0]}</option>)}</select>
+        <select value={filterBand} onChange={e=>setFilterBand(e.target.value)} style={{...selStyle,fontWeight:filterBand?700:400,color:filterBand?(VALUE_BANDS.find(b=>b.label===filterBand)?.color||C.ink):C.ink}}>
+          <option value="">All Values</option>
+          {VALUE_BANDS.map(b=><option key={b.label} value={b.label}>{b.label}</option>)}
+          <option value="none">No value yet</option>
+        </select>
       </div>
       <div style={{overflowX:"auto",maxHeight:500,overflowY:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
