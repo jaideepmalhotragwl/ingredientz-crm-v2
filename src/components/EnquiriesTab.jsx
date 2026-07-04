@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { C, STAGES, STAGE_COLORS, PRIO_COLORS } from "../constants.js";
 import { daysUntil, fmtDate } from "../utils.js";
 import { Btn } from "./ui/Btn.jsx";
@@ -7,18 +7,69 @@ import { Modal } from "./ui/Modal.jsx";
 import { StageBadge, PrioBadge } from "./ui/Badges.jsx";
 import { EnquiryForm } from "./EnquiryForm.jsx";
 
+// ── FX → USD-equivalent (keep in sync with OrdersTab). Update as rates move. ──
+const FX = { USD: 1, EUR: 1.08, INR: 0.0117, "$": 1, "€": 1.08, "₹": 0.0117 };
+function toUSD(amount, currency) {
+  const r = FX[(currency || "USD").toString().toUpperCase()] ?? FX[currency] ?? 1;
+  return (parseFloat(amount) || 0) * r;
+}
+
+// Deal-size bands (measured in USD). Order matters: first match wins.
+const VALUE_BANDS = [
+  { min: 1000000, color: "#1E7A46", bg: "#E6F4EC", label: "≥ $1M" },      // deep green — top priority
+  { min: 100000,  color: "#42B72A", bg: "#EAF7E6", label: "$100K–1M" },   // green — high
+  { min: 50000,   color: "#F5A623", bg: "#FDF3E3", label: "$50K–100K" },  // amber — medium
+  { min: 10000,   color: "#1877F2", bg: "#E7F0FD", label: "$10K–50K" },   // blue — low
+  { min: 0,       color: "#8A8D91", bg: "#F0F1F3", label: "< $10K" },     // grey — lowest
+];
+function bandFor(usd) {
+  return VALUE_BANDS.find(b => usd >= b.min) || VALUE_BANDS[VALUE_BANDS.length - 1];
+}
+
 // ── ENQUIRIES TAB ─────────────────────────────────────────────────────────────
-function EnquiriesTab({enquiries,customers,users,onSelect,onStageChange,onDelete,onAdd}) {
+function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageChange,onDelete,onAdd}) {
   const [showForm,setShowForm]=useState(false);
   const [search,setSearch]=useState("");
   const [filterStage,setFilterStage]=useState("");
   const [filterAssignee,setFilterAssignee]=useState("");
   const [sort,setSort]=useState({k:"created_at",d:-1});
 
+  // Latest quotation total per enquiry_id (fallback when no manual value is set)
+  const latestQuoteByEnq = useMemo(() => {
+    const m = {};
+    (quotations || []).forEach(q => {
+      const eid = q.enquiry_id;
+      if (eid == null) return;
+      const amt = parseFloat(q.grand_total ?? q.total ?? q.amount ?? q.value) || 0;
+      const when = new Date(q.created_at || q.updated_at || 0).getTime();
+      if (!m[eid] || when >= m[eid].when) m[eid] = { amt, cur: q.currency, when };
+    });
+    return m;
+  }, [quotations]);
+
+  // Resolve the value to show for an enquiry: manual first, else latest quotation.
+  function resolveValue(e) {
+    if (e.expected_value != null && e.expected_value !== "" && Number(e.expected_value) > 0) {
+      return { amount: Number(e.expected_value), currency: e.currency || "USD", source: "manual" };
+    }
+    const q = latestQuoteByEnq[e.id];
+    if (q && q.amt > 0) return { amount: q.amt, currency: q.cur || e.currency || "USD", source: "quote" };
+    return null;
+  }
+
   const filtered=enquiries
     .filter(e=>(!filterStage||e.stage===filterStage)&&(!filterAssignee||e.assigned_to===filterAssignee))
     .filter(e=>!search||[e.customer_name,(e.products||[])[0]?.name||"",e.assigned_to,e.country].join(" ").toLowerCase().includes(search.toLowerCase()))
-    .sort((a,b)=>{const va=a[sort.k]??"",vb=b[sort.k]??"";return typeof va==="number"?(va-vb)*sort.d:String(va).localeCompare(String(vb))*sort.d;});
+    .sort((a,b)=>{
+      // Value column sorts by USD-equivalent of the resolved value
+      if (sort.k === "expected_value") {
+        const va = resolveValue(a) ? toUSD(resolveValue(a).amount, resolveValue(a).currency) : -1;
+        const vb = resolveValue(b) ? toUSD(resolveValue(b).amount, resolveValue(b).currency) : -1;
+        return (va - vb) * sort.d;
+      }
+      const va=a[sort.k]??"",vb=b[sort.k]??"";
+      return typeof va==="number"?(va-vb)*sort.d:String(va).localeCompare(String(vb))*sort.d;
+    });
 
   function toggleSort(k){setSort(s=>s.k===k?{k,d:s.d*-1}:{k,d:-1});}
   const selStyle={background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",color:C.ink,fontSize:11};
@@ -53,6 +104,8 @@ function EnquiriesTab({enquiries,customers,users,onSelect,onStageChange,onDelete
               const closeS=dC!==null&&dC<=7&&dC>=0&&!["PO Received","Lost"].includes(e.stage);
               const prod=(e.products||[])[0]?.name||"—";
               const prod2=(e.products||[])[1]?.name;
+              const val=resolveValue(e);
+              const band=val?bandFor(toUSD(val.amount,val.currency)):null;
               return <tr key={e.id} onClick={()=>onSelect(e)}
                 style={{background:overR?"#FFF8F8":closeS?"#FFFBF0":i%2===0?C.bg:"transparent",cursor:"pointer"}}
                 onMouseEnter={ev=>ev.currentTarget.style.background=C.blueLt}
@@ -68,7 +121,15 @@ function EnquiriesTab({enquiries,customers,users,onSelect,onStageChange,onDelete
                     {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
-                <td style={{padding:"9px 13px",color:C.blue,fontWeight:700}}>{e.expected_value?`${e.currency||"$"}${Number(e.expected_value).toLocaleString()}`:"—"}</td>
+                <td style={{padding:"9px 13px"}}>
+                  {val ? (
+                    <span title={val.source==="quote" ? "From latest quotation" : "Manually entered"}
+                      style={{display:"inline-block",fontWeight:700,fontSize:11,color:band.color,background:band.bg,border:`1px solid ${band.color}33`,borderRadius:99,padding:"3px 9px",whiteSpace:"nowrap"}}>
+                      {val.currency==="USD"||val.currency==="$"?"$":`${val.currency} `}{Number(val.amount).toLocaleString()}
+                      {val.source==="quote" && <span style={{opacity:0.6,fontWeight:500}}> ·q</span>}
+                    </span>
+                  ) : <span style={{color:C.muted}}>—</span>}
+                </td>
                 <td style={{padding:"9px 13px",color:closeS?C.amber:C.muted,fontWeight:closeS?700:400}}>{fmtDate(e.expected_closure)}</td>
                 <td style={{padding:"9px 13px",color:overR?C.red:C.muted,fontWeight:overR?700:400}}>{overR?`⚠ ${Math.abs(dR)}d overdue`:fmtDate(e.reminder_date)}</td>
                 <td style={{padding:"9px 13px"}} onClick={ev=>ev.stopPropagation()}>
