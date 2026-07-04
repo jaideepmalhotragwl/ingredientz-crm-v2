@@ -26,6 +26,13 @@ function bandFor(usd) {
   return VALUE_BANDS.find(b => usd >= b.min) || VALUE_BANDS[VALUE_BANDS.length - 1];
 }
 
+// Colour the FY-quarter tag by quarter, so Q1–Q4 are visually distinct in the list.
+const QUARTER_COLORS = { "1": "#1E7A46", "2": "#1877F2", "3": "#F5A623", "4": "#9B59B6" };
+function quarterColor(ref) {
+  const m = /Q(\d)/.exec(ref || "");
+  return (m && QUARTER_COLORS[m[1]]) || "#65676B";
+}
+
 // ── ENQUIRIES TAB ─────────────────────────────────────────────────────────────
 function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageChange,onDelete,onAdd}) {
   const [showForm,setShowForm]=useState(false);
@@ -106,14 +113,18 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
               const prod2=(e.products||[])[1]?.name;
               const val=resolveValue(e);
               const band=val?bandFor(toUSD(val.amount,val.currency)):null;
+              const qc=e.quarter_ref?quarterColor(e.quarter_ref):null;
               return <tr key={e.id} onClick={()=>onSelect(e)}
                 style={{background:overR?"#FFF8F8":closeS?"#FFFBF0":i%2===0?C.bg:"transparent",cursor:"pointer"}}
                 onMouseEnter={ev=>ev.currentTarget.style.background=C.blueLt}
                 onMouseLeave={ev=>ev.currentTarget.style.background=overR?"#FFF8F8":closeS?"#FFFBF0":i%2===0?C.bg:"transparent"}>
                 <td style={{padding:"9px 13px",color:C.muted,whiteSpace:"nowrap"}}>{fmtDate(e.enquiry_date)}</td>
-                <td style={{padding:"9px 13px",maxWidth:160}}>
+                <td style={{padding:"9px 13px",maxWidth:170}}>
                   <div style={{color:C.ink,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.customer_name}</div>
-                  <div style={{fontSize:9,color:C.faded,fontFamily:"monospace",fontWeight:400,whiteSpace:"nowrap"}}>ENQ-{e.id}{e.quarter_ref?` · ${e.quarter_ref}`:""}</div>
+                  <div style={{marginTop:3,display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:9,fontFamily:"monospace",fontWeight:600,color:C.muted,background:C.bg,border:`1px solid ${C.border}`,borderRadius:5,padding:"1px 5px",whiteSpace:"nowrap"}}>ENQ-{e.id}</span>
+                    {e.quarter_ref&&<span style={{fontSize:9,fontFamily:"monospace",fontWeight:700,color:qc,background:`${qc}18`,border:`1px solid ${qc}44`,borderRadius:5,padding:"1px 5px",whiteSpace:"nowrap"}}>{e.quarter_ref}</span>}
+                  </div>
                 </td>
                 <td style={{padding:"9px 13px",color:C.muted,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prod}{prod2?`, ${prod2}`:""}</td>
                 <td style={{padding:"9px 13px",color:C.muted}}>{e.country||"—"}</td>
