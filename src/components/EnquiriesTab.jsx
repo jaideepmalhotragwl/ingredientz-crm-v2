@@ -114,10 +114,12 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
               const val=resolveValue(e);
               const band=val?bandFor(toUSD(val.amount,val.currency)):null;
               const qc=e.quarter_ref?quarterColor(e.quarter_ref):null;
+              const rowBg=band?band.bg:(i%2===0?C.bg:"transparent");
+              const edge=overR?C.red:closeS?C.amber:"transparent";
               return <tr key={e.id} onClick={()=>onSelect(e)}
-                style={{background:overR?"#FFF8F8":closeS?"#FFFBF0":i%2===0?C.bg:"transparent",cursor:"pointer"}}
+                style={{background:rowBg,cursor:"pointer",borderLeft:`3px solid ${edge}`}}
                 onMouseEnter={ev=>ev.currentTarget.style.background=C.blueLt}
-                onMouseLeave={ev=>ev.currentTarget.style.background=overR?"#FFF8F8":closeS?"#FFFBF0":i%2===0?C.bg:"transparent"}>
+                onMouseLeave={ev=>ev.currentTarget.style.background=rowBg}>
                 <td style={{padding:"9px 13px",color:C.muted,whiteSpace:"nowrap"}}>{fmtDate(e.enquiry_date)}</td>
                 <td style={{padding:"9px 13px",maxWidth:170}}>
                   <div style={{color:C.ink,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.customer_name}</div>
@@ -138,7 +140,7 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
                 <td style={{padding:"9px 13px"}}>
                   {val ? (
                     <span title={val.source==="quote" ? "From latest quotation" : "Manually entered"}
-                      style={{display:"inline-block",fontWeight:700,fontSize:11,color:band.color,background:band.bg,border:`1px solid ${band.color}33`,borderRadius:99,padding:"3px 9px",whiteSpace:"nowrap"}}>
+                      style={{display:"inline-block",fontWeight:700,fontSize:11,color:band.color,background:C.white,border:`1px solid ${band.color}66`,borderRadius:99,padding:"3px 9px",whiteSpace:"nowrap"}}>
                       {val.currency==="USD"||val.currency==="$"?"$":`${val.currency} `}{Number(val.amount).toLocaleString()}
                       {val.source==="quote" && <span style={{opacity:0.6,fontWeight:500}}> ·q</span>}
                     </span>
