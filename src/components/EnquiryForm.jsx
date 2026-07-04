@@ -6,8 +6,23 @@ import { FF, FTA } from "./ui/FormFields.jsx";
 import { Btn } from "./ui/Btn.jsx";
 import { ProductAutocomplete } from "./ProductAutocomplete.jsx";
 
+// ── Feature #8: Indian FY (Apr–Mar) quarter tag. Returns { fy:"2627", q:1, qStart, qEnd }. ──
+function fyQuarter(dateStr) {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  const m = d.getMonth(), y = d.getFullYear();
+  const startYear = m >= 3 ? y : y - 1;                       // FY starts 1 April
+  const fy = `${String(startYear).slice(2)}${String(startYear + 1).slice(2)}`;  // e.g. 2627
+  const q = (m >= 3 && m <= 5) ? 1 : (m >= 6 && m <= 8) ? 2 : (m >= 9 && m <= 11) ? 3 : 4;
+  const qStartMonth = [3, 6, 9, 0][q - 1];
+  const qYear = q === 4 ? startYear + 1 : startYear;          // Q4 = Jan–Mar of next calendar year
+  const iso = dd => dd.toISOString().split("T")[0];
+  const qStart = new Date(qYear, qStartMonth, 1);
+  const qEnd = new Date(qYear, qStartMonth + 3, 0);           // last day of the quarter
+  return { fy, q, qStart: iso(qStart), qEnd: iso(qEnd) };
+}
+
 const EMPTY_ENQ = {
-  customer_id:"", customer_name:"", contact_person:"", country:"",
+  customer_id:"", customer_name:"", contact_person:"", country:"", customer_email:"",
   products:[{name:"",qty:"",unit:"kg"}],
   expected_value:"", currency:"USD",
   source:"", assigned_to:"", priority:"Medium", stage:"New Enquiry",
@@ -27,7 +42,7 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
   const [saving,setSaving]=useState(false);
   const [done,setDone]=useState(false);
 
-  function set(k,v){setForm(f=>{const u={...f,[k]:v};if(k==="customer_id"){const c=customers.find(x=>String(x.id)===String(v));if(c){u.customer_name=c.company;u.country=c.country||"";u.contact_person=c.contact||"";}}return u;});}
+  function set(k,v){setForm(f=>{const u={...f,[k]:v};if(k==="customer_id"){const c=customers.find(x=>String(x.id)===String(v));if(c){u.customer_name=c.company;u.country=c.country||"";u.contact_person=c.contact||"";if(c.email)u.customer_email=c.email;}}return u;});}
   function setProduct(i,field,val){setForm(f=>({...f,products:f.products.map((p,idx)=>idx===i?{...p,[field]:val}:p)}));}
   function addProduct(){setForm(f=>({...f,products:[...f.products,{name:"",qty:"",unit:"kg"}]}));}
   function removeProduct(i){setForm(f=>({...f,products:f.products.length>1?f.products.filter((_,idx)=>idx!==i):f.products}));}
@@ -41,6 +56,7 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
       customer_name:form.customer_name,
       contact_person:form.contact_person,
       country:form.country,
+      customer_email:form.customer_email?.trim()||null,
       products:form.products.filter(p=>p.name.trim()),
       expected_value:form.expected_value?parseFloat(form.expected_value):null,
       currency:form.currency,
@@ -70,6 +86,20 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
         await supabase.from("products").insert({ name: trimmed, slug, unit: p.unit || "kg", status: "pending", created_by: row.assigned_to || "system" });
       }
     }
+    // ── Feature #8: FY-quarter review tag (running ENQ id is kept separately) ──
+    if (!initial) {
+      const { fy, q, qStart, qEnd } = fyQuarter(row.enquiry_date);
+      let seq = 1;
+      try {
+        const { count } = await supabase.from("enquiries")
+          .select("id", { count: "exact", head: true })
+          .gte("enquiry_date", qStart).lte("enquiry_date", qEnd);
+        seq = (count || 0) + 1;
+      } catch (e) { console.error("quarter count", e); }
+      row.quarter_ref = `${fy}Q${q}-${seq}`;
+    } else if (initial.quarter_ref) {
+      row.quarter_ref = initial.quarter_ref;
+    }
     await onSave(row, initial?.id);
     setDone(true);
     setTimeout(()=>{setDone(false);setSaving(false);if(!initial)setForm(EMPTY_ENQ);},1200);
@@ -87,10 +117,12 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
         <FF label="Customer" k="customer_id" value={form.customer_id} onChange={set} options={custOpts}/>
         <FF label="Or type company *" k="customer_name" value={form.customer_name} onChange={set} placeholder="Company name"/>
         <FF label="Contact Person" k="contact_person" value={form.contact_person} onChange={set} placeholder="Full name"/>
+        <FF label="Customer Email" k="customer_email" value={form.customer_email} onChange={set} type="email" placeholder="buyer@company.com"/>
         <FF label="Country" k="country" value={form.country} onChange={set} placeholder="e.g. Germany"/>
         <FF label="Source" k="source" value={form.source} onChange={set} options={SOURCES}/>
         <FF label="Assigned To" k="assigned_to" value={form.assigned_to} onChange={set} options={userOpts}/>
       </div>
+      <div style={{fontSize:10,color:C.muted,marginTop:6}}>The customer gets an automatic acknowledgement when the email is filled in.</div>
     </div>
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
