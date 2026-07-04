@@ -698,7 +698,7 @@ export default function App() {
           </div>
         </div>
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} orders={orders} />}
-        {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
+        {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} quotations={quotations} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
         {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} />}
         {activeTab === "samples"    && <SamplesTab samples={samples} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
