@@ -23,6 +23,7 @@ import { DocumentsTab }    from "./components/DocumentsTab.jsx";
 import { EnquiryDrawer }   from "./components/EnquiryDrawer.jsx";
 import { ContentEngine }   from "./components/ContentEngine.jsx";
 import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
+import { MarketSignals }   from "./components/MarketSignals.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
 
@@ -650,6 +651,7 @@ export default function App() {
     { id: "documents",  label: "Documents",  icon: "📄", badge: 0 },
     { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
     { id: "marketintel", label: "Market Intel", icon: "📈", badge: 0 },
+    { id: "signals",    label: "Signals",    icon: "📡", badge: 0 },
     { id: "research",   label: "Research",   icon: "🔬", badge: 0 },
     { id: "teamdesk",   label: "Team Tracker", icon: "🎯", badge: missingReportCount },   // ── Team Tracker (replaces Team Activity) ──
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
@@ -733,6 +735,7 @@ export default function App() {
         {activeTab === "documents"  && <DocumentsTab />}
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
         {activeTab === "marketintel" && <MarketIntelTab />}
+        {activeTab === "signals"    && <MarketSignals />}
         {activeTab === "research"   && <ResearchConsoleTab />}
         {activeTab === "teamdesk"   && <TeamDesk supabase={supabase} users={users} dailyReports={dailyReports} onSaveReport={saveDailyReport} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} enquiries={enquiries} quotations={quotations} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
