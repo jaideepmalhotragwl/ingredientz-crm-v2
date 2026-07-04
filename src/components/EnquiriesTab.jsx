@@ -111,7 +111,10 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
                 onMouseEnter={ev=>ev.currentTarget.style.background=C.blueLt}
                 onMouseLeave={ev=>ev.currentTarget.style.background=overR?"#FFF8F8":closeS?"#FFFBF0":i%2===0?C.bg:"transparent"}>
                 <td style={{padding:"9px 13px",color:C.muted,whiteSpace:"nowrap"}}>{fmtDate(e.enquiry_date)}</td>
-                <td style={{padding:"9px 13px",color:C.ink,fontWeight:600,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.customer_name}</td>
+                <td style={{padding:"9px 13px",maxWidth:160}}>
+                  <div style={{color:C.ink,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.customer_name}</div>
+                  <div style={{fontSize:9,color:C.faded,fontFamily:"monospace",fontWeight:400,whiteSpace:"nowrap"}}>ENQ-{e.id}{e.quarter_ref?` · ${e.quarter_ref}`:""}</div>
+                </td>
                 <td style={{padding:"9px 13px",color:C.muted,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prod}{prod2?`, ${prod2}`:""}</td>
                 <td style={{padding:"9px 13px",color:C.muted}}>{e.country||"—"}</td>
                 <td style={{padding:"9px 13px",color:C.muted}}>{(e.assigned_to||"").split(" ")[0]||"—"}</td>
