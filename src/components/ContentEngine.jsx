@@ -3,6 +3,7 @@ import { supabase } from "../config.js";
 import { C } from "../constants.js";
 
 const PROXY = "https://eytoryygkxjslfvsqanl.supabase.co/functions/v1/claude-proxy";
+const MODEL = "claude-sonnet-4-6";   // current model (claude-sonnet-4-20250514 retired 2026-04-20 → 404)
 
 const THEMES = [
   { id:"buyers_guide",  label:"📋 Buyer's Guide",      desc:"Complete sourcing guide for B2B buyers" },
@@ -53,7 +54,7 @@ Return ONLY valid JSON, no markdown:
 }`;
 
   const articleRaw = await callProxy({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL,
     max_tokens: 2500,
     messages: [{ role: "user", content: articlePrompt }]
   });
@@ -71,7 +72,7 @@ Return ONLY valid JSON:
 }`;
 
   const socialRaw = await callProxy({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL,
     max_tokens: 800,
     messages: [{ role: "user", content: socialPrompt }]
   });
@@ -412,102 +413,15 @@ export function ContentEngine() {
         <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:24 }}>
           <div style={{ fontSize:15, fontWeight:700, color:C.ink, marginBottom:6 }}>🤖 Auto-Pilot Mode</div>
           <div style={{ fontSize:12, color:C.muted, lineHeight:1.8, marginBottom:20 }}>
-            Google Apps Script runs every Monday 8AM IST. If no article was published in 7 days, it auto-generates one from trending nutraceutical news and emails you.
+            The Content Engine Google Apps Script runs on a weekly trigger, pulls trending nutraceutical news, generates a draft, and emails you to review + publish. (See your deployed <strong>ContentEngine.gs</strong> for the live version.)
           </div>
-          <div style={{ background:"#F0FDF4", border:"1px solid #BBF7D0", borderRadius:8, padding:14, marginBottom:16 }}>
-            <div style={{ fontSize:12, fontWeight:600, color:"#166534", marginBottom:4 }}>📋 Setup — 5 minutes</div>
-            <div style={{ fontSize:11, color:"#15803d", lineHeight:1.8 }}>
-              1. Go to <strong>script.google.com</strong> → New project<br/>
-              2. Paste the code below<br/>
-              3. Replace YOUR_EMAIL with your email<br/>
-              4. Click Run once → authorize<br/>
-              5. Triggers → Add trigger → weeklyAutopilot → Week timer → Monday → 8AM
+          <div style={{ background:"#EFF6FF", border:"1px solid #BFDBFE", borderRadius:8, padding:14 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:"#1E40AF", marginBottom:4 }}>ℹ️ Note</div>
+            <div style={{ fontSize:11, color:"#1D4ED8", lineHeight:1.8 }}>
+              The autopilot is managed in Google Apps Script (not here). This tab is just a reference.
+              The live script uses model <strong>claude-sonnet-4-6</strong> and posts drafts to the All Posts tab for review.
             </div>
           </div>
-          <div style={{ background:"#0D1F3C", borderRadius:8, padding:16, marginBottom:12, maxHeight:400, overflowY:"auto" }}>
-            <div style={{ fontSize:10, color:"rgba(255,255,255,0.4)", fontWeight:700, letterSpacing:1, marginBottom:8 }}>GOOGLE APPS SCRIPT</div>
-            <pre style={{ fontSize:10, color:"#2dd4bf", fontFamily:"monospace", whiteSpace:"pre-wrap", lineHeight:1.6 }}>{`const SUPABASE_URL = "https://eytoryygkxjslfvsqanl.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dG9yeXlna3hqc2xmdnNxYW5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NDA5MTUsImV4cCI6MjA5MDMxNjkxNX0.txYTl0Q06mKSfWGmWc8cOTmCN46tLcxF9_7RhBUHBRY";
-const NOTIFY_EMAIL = "YOUR_EMAIL@gmail.com";
-const PROXY = SUPABASE_URL + "/functions/v1/claude-proxy";
-
-const PRODUCTS = ["Ashwagandha Extract","Bovine Colostrum","Berberine HCl",
-  "Lion's Mane","Magnesium Glycinate","Vitamin D3","NMN","Shilajit Extract",
-  "Turmeric Curcumin","Probiotics","Creatine","L-Theanine","Quercetin"];
-
-const THEMES = ["buyers_guide","science","sourcing","market_trends","formulation"];
-
-function slugify(t){ return t.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,80); }
-
-function hasRecentPost() {
-  const since = new Date(Date.now()-7*24*60*60*1000).toISOString();
-  const res = UrlFetchApp.fetch(
-    SUPABASE_URL+"/rest/v1/blog_posts?created_at=gte."+since+"&limit=1",
-    { headers:{ "apikey":SUPABASE_KEY, "Authorization":"Bearer "+SUPABASE_KEY }}
-  );
-  return JSON.parse(res.getContentText()).length > 0;
-}
-
-function getTrend() {
-  try {
-    const xml = UrlFetchApp.fetch(
-      "https://news.google.com/rss/search?q=nutraceutical+supplement+ingredients&hl=en-US&gl=US&ceid=US:en"
-    ).getContentText();
-    const titles = xml.match(/<title>(.*?)<\\/title>/g)||[];
-    return titles[1]?.replace(/<\\/?title>/g,"")||null;
-  } catch(e){ return null; }
-}
-
-function weeklyAutopilot() {
-  if (hasRecentPost()) { Logger.log("Recent post found — skip"); return; }
-
-  const product = PRODUCTS[Math.floor(Math.random()*PRODUCTS.length)];
-  const theme   = THEMES[Math.floor(Math.random()*THEMES.length)];
-  const trend   = getTrend();
-
-  const prompt = "Write B2B nutraceutical blog article. Product: "+product+
-    ". Theme: "+theme+(trend?". Trending: "+trend:"")+
-    ". Return JSON: {title,meta_description,excerpt,keywords:[],content,linkedin_post,whatsapp_message,twitter_post}";
-
-  const r = UrlFetchApp.fetch(PROXY, {
-    method:"post", contentType:"application/json",
-    payload: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:2500,
-      messages:[{role:"user",content:prompt}] })
-  });
-
-  const text = JSON.parse(r.getContentText()).content[0].text
-    .replace(/\`\`\`json|\`\`\`/g,"").trim();
-  const a = JSON.parse(text);
-
-  UrlFetchApp.fetch(SUPABASE_URL+"/rest/v1/blog_posts", {
-    method:"post", contentType:"application/json",
-    headers:{ "apikey":SUPABASE_KEY, "Authorization":"Bearer "+SUPABASE_KEY, "Prefer":"return=minimal" },
-    payload: JSON.stringify({
-      title:a.title, slug:slugify(a.title)+"-"+Date.now(),
-      meta_description:a.meta_description, content:a.content,
-      excerpt:a.excerpt, product_name:product, theme:theme,
-      keywords:a.keywords, status:"draft", source:"autopilot",
-      site:["ingredientz"], trending_topic:trend,
-      linkedin_post:a.linkedin_post, whatsapp_message:a.whatsapp_message,
-      twitter_post:a.twitter_post
-    })
-  });
-
-  GmailApp.sendEmail(NOTIFY_EMAIL,
-    "🤖 Auto article ready: "+a.title,
-    "New draft saved.\\nTitle: "+a.title+"\\nProduct: "+product+
-    "\\n\\nReview: https://ingredientz-crm-v2.vercel.app"
-  );
-  Logger.log("Done: "+a.title);
-}`}</pre>
-          </div>
-          <button onClick={()=>{
-            const code = document.querySelector("pre").textContent;
-            navigator.clipboard.writeText(code);
-            alert("Code copied! Paste into Google Apps Script.");
-          }} style={{ background:C.blue, border:"none", color:"white", borderRadius:7, padding:"9px 20px", fontSize:12, fontWeight:600, cursor:"pointer" }}>
-            📋 Copy Apps Script Code
-          </button>
         </div>
       )}
     </div>
