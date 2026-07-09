@@ -4,6 +4,7 @@ import { C } from "../constants.js";
 import { sendEmail } from "../utils.js";
 import { RFQ_TEMPLATE } from "../templates.js";
 
+
 // ── SUPPLIER RFQ DRAWER (inside EnquiryDrawer) ────────────────────────────────
 function RFQForwardPanel({ enq, users, onThreadInserted }) {
   const [suppliers, setSuppliers] = useState([]);
@@ -14,8 +15,10 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
   const [addedSuppliers, setAddedSuppliers] = useState([]);
   const [pickSup, setPickSup] = useState("");
 
+
   const PROCUREMENT_SENDER = "procurement@mail.ingredientz.co";
   const PROCUREMENT_REPLY  = "procurement@ingredientz.co";
+
 
   useEffect(() => {
     async function load() {
@@ -30,8 +33,10 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     load();
   }, []);
 
+
   const norm = s => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
   const products = Array.isArray(enq.products) ? enq.products : [];
+
 
   // For each product in the enquiry, find mapped suppliers (normalised name match, or product_id)
   const productSupplierMap = products.map(p => {
@@ -41,6 +46,7 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     );
     return { product: p, mappedSuppliers: matched.map(m => m.suppliers).filter(Boolean) };
   });
+
 
   // Build supplier -> products groups from the mappings
   const groupMap = {};
@@ -57,16 +63,20 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     if (!groupMap[sup.id]) groupMap[sup.id] = { supplier: sup, products: [...products] };
   });
 
+
   const groups = Object.values(groupMap).filter(g => !excludedIds.has(g.supplier.id));
+
 
   // Products not covered by any included supplier
   const coveredNames = new Set();
   groups.forEach(g => g.products.forEach(p => coveredNames.add(norm(p.name))));
   const unmatched = products.filter(p => !coveredNames.has(norm(p.name)));
 
+
   // Suppliers available to add (active, not already shown)
   const shownIds = new Set(groups.map(g => g.supplier.id));
   const available = suppliers.filter(s => !shownIds.has(s.id));
+
 
   function excludeSupplier(id) {
     setExcludedIds(prev => { const n = new Set(prev); n.add(id); return n; });
@@ -81,6 +91,7 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     }
     setPickSup("");
   }
+
 
   async function sendRFQ(supplier, productsForSupplier) {
     if (!supplier?.contact_email) { alert("Supplier has no email."); return; }
@@ -104,6 +115,8 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     const now = new Date();
     const seqRows = [1, 3, 7].map((days, idx) => ({
       enquiry_id: enq.id, customer_name: enq.customer_name, sequence_type: "rfq", step: idx + 1,
+      supplier_contact_name: supplier.contact_name || null,
+      supplier_company: supplier.company || null,
       scheduled_at: new Date(now.getTime() + days * 86400000).toISOString(),
       to_email: supplier.contact_email, from_email: PROCUREMENT_SENDER,
       body_preview: productsForSupplier.map(p => p.name).join(", ")
@@ -119,11 +132,13 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     setTimeout(() => setSent(s => ({ ...s, [key]: false })), 4000);
   }
 
+
   async function sendAll() {
     for (const g of groups) {
       await sendRFQ(g.supplier, g.products);
     }
   }
+
 
   return <div style={{ padding: "16px 0" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -131,6 +146,7 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
       {groups.length > 1 && <button onClick={sendAll} style={{ background: C.blue, color: "white", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 10, fontWeight: 700 }}>Send all ({groups.length})</button>}
     </div>
     <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>Sending from: <span style={{ color: C.ink, fontWeight: 600 }}>{PROCUREMENT_SENDER}</span> · one email per supplier · customer hidden</div>
+
 
     {groups.map(({ supplier, products: prods }) => (
       <div key={supplier.id} style={{ background: C.bg, borderRadius: 10, padding: 14, border: `1px solid ${C.border}`, marginBottom: 10 }}>
@@ -156,16 +172,19 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
       </div>
     ))}
 
+
     {groups.length === 0 && <div style={{ textAlign: "center", padding: "24px 16px", color: C.muted, fontSize: 12 }}>
       No suppliers selected for this RFQ.<br />
       <span style={{ fontSize: 11 }}>Add one below, or map suppliers in the Products tab.</span>
     </div>}
+
 
     {unmatched.length > 0 && <div style={{ background: "#FFF8E6", border: `1px solid ${C.amber}55`, borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: C.amber, marginBottom: 4 }}>No supplier mapped for:</div>
       {unmatched.map((p, i) => (<div key={i} style={{ fontSize: 12, color: C.ink }}>• {p.name}</div>))}
       <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>Add a supplier below to include these, or map one in the Products tab.</div>
     </div>}
+
 
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
       <select value={pickSup} onChange={e => setPickSup(e.target.value)} style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 10px", color: pickSup ? C.ink : C.muted, fontSize: 12, outline: "none" }}>
@@ -176,5 +195,6 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     </div>
   </div>;
 }
+
 
 export { RFQForwardPanel };
