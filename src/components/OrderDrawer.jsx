@@ -17,7 +17,6 @@ import { InvoiceForm }     from "./orders/InvoiceForm.jsx";
 import { PaymentForm }     from "./orders/PaymentForm.jsx";
 import { ShipmentForm }    from "./orders/ShipmentForm.jsx";
 import { DocumentTrail }   from "./DocumentTrail.jsx";
-
 const TABS = [
   { id: "items",     label: "Items & suppliers" },
   { id: "documents", label: "Documents" },
@@ -25,9 +24,7 @@ const TABS = [
   { id: "shipments", label: "Shipments" },
   { id: "activity",  label: "Activity" }
 ];
-
 const SUPPLIER_PO_COLORS = ["#1877F2", "#42B72A", "#F5A623", "#8E44AD", "#E74C3C", "#16A085", "#E67E22", "#34495E"];
-
 export function OrderDrawer({
   order, orderItems, supplierPOs, supplierPOItems, invoices, payments, shipments, statusHistory,
   customers, suppliers,
@@ -40,47 +37,37 @@ export function OrderDrawer({
   const [showPaymentForm, setShowPaymentForm] = useState(null); // 'customer_payment_in' | 'supplier_payment_out' | null
   const [showShipmentForm, setShowShipmentForm] = useState(false);
   const [editingShipment, setEditingShipment] = useState(null);
-
   if (!order) return null;
-
   // ── Computed values ──────────────────────────────────────────────────────
   const customer = customers?.find(c => c.id === order.customer_id);
-
   const orderItemsForThisOrder = useMemo(
     () => (orderItems || []).filter(it => it.order_id === order.id).sort((a, b) => a.line_number - b.line_number),
     [orderItems, order.id]
   );
-
   const supplierPOsForThisOrder = useMemo(
     () => (supplierPOs || []).filter(po => po.order_id === order.id),
     [supplierPOs, order.id]
   );
-
   const supplierPOItemsForThisOrder = useMemo(() => {
     const poIds = supplierPOsForThisOrder.map(po => po.id);
     return (supplierPOItems || []).filter(pi => poIds.includes(pi.supplier_po_id));
   }, [supplierPOItems, supplierPOsForThisOrder]);
-
   const invoicesForThisOrder = useMemo(
     () => (invoices || []).filter(inv => inv.order_id === order.id),
     [invoices, order.id]
   );
-
   const paymentsForThisOrder = useMemo(
     () => (payments || []).filter(p => p.order_id === order.id),
     [payments, order.id]
   );
-
   const shipmentsForThisOrder = useMemo(
     () => (shipments || []).filter(s => s.order_id === order.id),
     [shipments, order.id]
   );
-
   const statusHistoryForThisOrder = useMemo(
     () => (statusHistory || []).filter(h => h.order_id === order.id).sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at)),
     [statusHistory, order.id]
   );
-
   // Map: supplier_po_id -> color
   const supplierPOColorMap = useMemo(() => {
     const m = {};
@@ -89,7 +76,6 @@ export function OrderDrawer({
     });
     return m;
   }, [supplierPOsForThisOrder]);
-
   // Map: order_item_id -> supplier_po (or null if unassigned)
   const itemToSupplierPO = useMemo(() => {
     const m = {};
@@ -99,24 +85,19 @@ export function OrderDrawer({
     });
     return m;
   }, [supplierPOItemsForThisOrder, supplierPOsForThisOrder]);
-
   // Money in / money out totals
   const totalIn = paymentsForThisOrder
     .filter(p => p.payment_type === "customer_payment_in")
     .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-
   const totalOut = paymentsForThisOrder
     .filter(p => p.payment_type === "supplier_payment_out")
     .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-
   const customerInvoiced = invoicesForThisOrder
     .filter(i => i.invoice_type === "customer")
     .reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
-
   const supplierInvoiced = invoicesForThisOrder
     .filter(i => i.invoice_type === "supplier")
     .reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
-
   // ── Styles ───────────────────────────────────────────────────────────────
   const overlay = {
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100,
@@ -157,11 +138,9 @@ export function OrderDrawer({
     background: "transparent", color: C.ink, border: `1px solid ${C.border}`,
     padding: "7px 12px", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer"
   };
-
   return (
     <div style={overlay} onClick={onClose}>
       <div style={drawer} onClick={e => e.stopPropagation()}>
-
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div style={header}>
           <div style={{ flex: 1 }}>
@@ -180,7 +159,6 @@ export function OrderDrawer({
               {order.job_name && <span> · {order.job_name}</span>}
             </div>
           </div>
-
           <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
             <select
               value={order.status}
@@ -198,7 +176,6 @@ export function OrderDrawer({
             <button onClick={onClose} style={btnGhost}>✕</button>
           </div>
         </div>
-
         {/* ── Stat strip ──────────────────────────────────────────────────── */}
         <div style={{ background: C.card, padding: "10px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 32 }}>
           <Stat label="Order value" value={`${fmtMoney(order.total_amount, order.currency)} ${order.currency}`} />
@@ -207,7 +184,6 @@ export function OrderDrawer({
           <Stat label="Shipment route" value={getRouteLabel(order.shipment_route)} />
           <Stat label="Money in / out" value={`${fmtMoney(totalIn, order.currency)} / ${fmtMoney(totalOut, order.currency)}`} />
         </div>
-
         {/* ── Tabs ────────────────────────────────────────────────────────── */}
         <div style={{ background: C.card, padding: "0 24px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 4 }}>
           {TABS.map(t => (
@@ -216,10 +192,8 @@ export function OrderDrawer({
             </button>
           ))}
         </div>
-
         {/* ── Body ────────────────────────────────────────────────────────── */}
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
-
           {/* ─── Items & Suppliers tab ─── */}
           {activeTab === "items" && (
             <>
@@ -229,7 +203,6 @@ export function OrderDrawer({
                 </div>
                 <button style={btnPrimary} onClick={() => setShowSupplierPOForm(true)}>+ Raise supplier PO</button>
               </div>
-
               <div style={card}>
                 {orderItemsForThisOrder.length === 0 ? (
                   <div style={{ color: C.muted, fontSize: 12, padding: 12 }}>No line items.</div>
@@ -278,7 +251,6 @@ export function OrderDrawer({
                   </table>
                 )}
               </div>
-
               {supplierPOsForThisOrder.length > 0 && (
                 <>
                   <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, margin: "16px 0 8px" }}>
@@ -317,7 +289,6 @@ export function OrderDrawer({
               )}
             </>
           )}
-
           {/* ─── Documents tab (stage-by-stage trail) ─── */}
           {activeTab === "documents" && (
             <DocumentTrail
@@ -327,7 +298,6 @@ export function OrderDrawer({
               suppliers={suppliers}
             />
           )}
-
           {/* ─── Payments tab ─── */}
           {activeTab === "payments" && (
             <>
@@ -337,12 +307,10 @@ export function OrderDrawer({
                 <button style={btnSecondary} onClick={() => setShowPaymentForm("customer_payment_in")}>+ Payment received</button>
                 <button style={btnSecondary} onClick={() => setShowPaymentForm("supplier_payment_out")}>+ Payment sent</button>
               </div>
-
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
                 <Metric label="Customer invoiced" value={`${fmtMoney(customerInvoiced, order.currency)} ${order.currency}`} sub={`Received: ${fmtMoney(totalIn, order.currency)}`} />
                 <Metric label="Supplier invoiced" value={`${fmtMoney(supplierInvoiced, order.currency)} ${order.currency}`} sub={`Paid: ${fmtMoney(totalOut, order.currency)}`} />
               </div>
-
               <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, margin: "8px 0" }}>Invoices ({invoicesForThisOrder.length})</div>
               {invoicesForThisOrder.length === 0 ? (
                 <div style={{ ...card, color: C.muted, fontSize: 12, padding: 20, textAlign: "center" }}>No invoices yet.</div>
@@ -366,7 +334,6 @@ export function OrderDrawer({
                   </div>
                 ))
               )}
-
               <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, margin: "16px 0 8px" }}>Payments ({paymentsForThisOrder.length})</div>
               {paymentsForThisOrder.length === 0 ? (
                 <div style={{ ...card, color: C.muted, fontSize: 12, padding: 20, textAlign: "center" }}>No payments logged.</div>
@@ -392,7 +359,6 @@ export function OrderDrawer({
               )}
             </>
           )}
-
           {/* ─── Shipments tab ─── */}
           {activeTab === "shipments" && (
             <>
@@ -400,7 +366,6 @@ export function OrderDrawer({
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Shipments ({shipmentsForThisOrder.length})</div>
                 <button style={btnPrimary} onClick={() => { setEditingShipment(null); setShowShipmentForm(true); }}>+ Log shipment</button>
               </div>
-
               {shipmentsForThisOrder.length === 0 ? (
                 <div style={{ ...card, color: C.muted, fontSize: 12, padding: 20, textAlign: "center" }}>No shipments logged yet.</div>
               ) : (
@@ -433,7 +398,6 @@ export function OrderDrawer({
               )}
             </>
           )}
-
           {/* ─── Activity tab ─── */}
           {activeTab === "activity" && (
             <>
@@ -454,7 +418,6 @@ export function OrderDrawer({
                   </div>
                 ))
               )}
-
               <div style={{ fontSize: 11, color: C.muted, marginTop: 16, fontStyle: "italic", padding: "0 4px" }}>
                 Created {fmtDate(order.created_at)}
                 {order.updated_at && order.updated_at !== order.created_at && (
@@ -465,7 +428,6 @@ export function OrderDrawer({
           )}
         </div>
       </div>
-
       {/* ── Sub-modals ──────────────────────────────────────────────────────── */}
       {showSupplierPOForm && (
         <SupplierPOForm
@@ -482,6 +444,8 @@ export function OrderDrawer({
           order={order}
           invoiceType={showInvoiceForm}
           supplierPOs={supplierPOsForThisOrder}
+          orderItems={orderItemsForThisOrder}
+          customer={customer}
           onClose={() => setShowInvoiceForm(null)}
           onSave={onAddInvoice}
         />
@@ -508,7 +472,6 @@ export function OrderDrawer({
     </div>
   );
 }
-
 // ── Sub-components ─────────────────────────────────────────────────────────────
 function Stat({ label, value }) {
   return (
@@ -518,15 +481,12 @@ function Stat({ label, value }) {
     </div>
   );
 }
-
 function Th({ children }) {
   return <th style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{children}</th>;
 }
-
 function Td({ children, style = {} }) {
   return <td style={{ padding: "10px", fontSize: 12, ...style }}>{children}</td>;
 }
-
 function Metric({ label, value, sub }) {
   return (
     <div style={{ background: C.card, padding: "12px 14px", borderRadius: 8, border: `1px solid ${C.border}` }}>
