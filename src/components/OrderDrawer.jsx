@@ -18,6 +18,7 @@ import { PaymentForm }     from "./orders/PaymentForm.jsx";
 import { ShipmentForm }    from "./orders/ShipmentForm.jsx";
 import { DocumentTrail }   from "./DocumentTrail.jsx";
 import { previewSupplierPO, previewInvoice } from "../lib/docGen.js";
+import { fmtName } from "../lib/nameFormat.js";
 const TABS = [
   { id: "items",     label: "Items & suppliers" },
   { id: "documents", label: "Documents" },
@@ -153,7 +154,7 @@ export function OrderDrawer({
               <span style={pill(getSourceColor(order.source))}>{getSourceLabel(order.source)}</span>
             </div>
             <div style={{ fontSize: 17, fontWeight: 600, color: C.ink, marginBottom: 4 }}>
-              {customer?.company || "—"} {customer?.country && <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}>· {customer.country}</span>}
+              {customer ? fmtName(customer.company) : "—"} {customer?.country && <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}>· {customer.country}</span>}
             </div>
             <div style={{ fontSize: 12, color: C.muted }}>
               Customer PO: <strong>{order.customer_po_number || "—"}</strong>
@@ -273,7 +274,7 @@ export function OrderDrawer({
                               {po.supplier_po_number}
                             </div>
                             <div style={{ fontSize: 13, color: C.ink, marginTop: 2 }}>
-                              {supplier?.company || "—"} {supplier?.country && <span style={{ color: C.muted, fontSize: 11 }}>· {supplier.country}</span>}
+                              {supplier ? fmtName(supplier.company) : "—"} {supplier?.country && <span style={{ color: C.muted, fontSize: 11 }}>· {supplier.country}</span>}
                             </div>
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
