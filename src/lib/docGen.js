@@ -16,6 +16,7 @@
 
 import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
 import { fmtMoney, slugify } from "./orderUtils.js";
+import { fmtName } from "./nameFormat.js";
 import { supabase } from "../config.js";
 
 // ── small helpers ────────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ function partiesHtml(fromLabel, from, toLabel, to) {
     </div>
     <div class="party">
       <div class="lbl">${esc(toLabel)}</div>
-      <strong>${esc(to.company || to.name)}</strong><br>${addressBlock(to)}
+      <strong>${esc(fmtName(to.company || to.name))}</strong><br>${addressBlock(to)}
       ${to.tax_id ? `<br>Tax ID: ${esc(to.tax_id)}` : ""}
       ${to.contact_person ? `<br>Attn: ${esc(to.contact_person)}` : ""}
     </div>
