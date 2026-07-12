@@ -5,8 +5,8 @@
 // it into a PDF, uploads to the `order-documents` bucket, and writes the file URL
 // back to the record so DocumentTrail's auto-slot lights up (green + Download).
 //
-// Requires one dependency:  npm i html2pdf.js
-// Falls back to print-to-PDF (openBrandedDoc) if html2pdf isn't available.
+// No npm dependency: html2pdf is loaded from a CDN at runtime.
+// Instant preview uses print-to-PDF (openBrandedDoc) and needs nothing at all.
 //
 // FIELD ASSUMPTIONS (adjust to your real `customers` / `suppliers` columns):
 //   customer.company, customer.country, customer.address, customer.city,
@@ -18,6 +18,19 @@
 import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
 import { fmtMoney, uploadOrderDocument, slugify } from "./orderUtils.js";
 import { supabase } from "../config.js";
+
+// html2pdf is loaded from a CDN at runtime (no npm dependency, no build impact).
+const HTML2PDF_CDN = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+function loadHtml2Pdf() {
+  if (typeof window !== "undefined" && window.html2pdf) return Promise.resolve(window.html2pdf);
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = HTML2PDF_CDN;
+    s.onload = () => resolve(window.html2pdf);
+    s.onerror = () => reject(new Error("Could not load html2pdf from CDN. Check network/CSP."));
+    document.head.appendChild(s);
+  });
+}
 
 // ── small helpers ────────────────────────────────────────────────────────────
 function esc(s) {
@@ -123,9 +136,7 @@ export function buildSupplierPOHtml({ order, po, poItems, supplier, entity }) {
 
 // ── ENGINE: render branded HTML -> PDF blob (via hidden iframe so fonts/images load)
 async function htmlToPdfBlob(fullHtml, filename) {
-  let html2pdf;
-  try { html2pdf = (await import("html2pdf.js")).default; }
-  catch { throw new Error("html2pdf.js not installed. Run: npm i html2pdf.js"); }
+  const html2pdf = await loadHtml2Pdf();
 
   const iframe = document.createElement("iframe");
   iframe.style.cssText = "position:fixed;left:-9999px;top:0;width:820px;height:1160px;border:0";
