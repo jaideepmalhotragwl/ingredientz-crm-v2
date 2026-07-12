@@ -15,7 +15,7 @@
 // Everything else uses columns already confirmed in the codebase.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
+import { renderBrandedHtml, renderCaptureHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
 import { fmtMoney, uploadOrderDocument, slugify } from "./orderUtils.js";
 
 // html2pdf is loaded from a CDN at runtime (no npm dependency, no build impact).
@@ -161,7 +161,7 @@ async function htmlToPdfBlob(fullHtml, filename) {
 export async function generateCustomerInvoice({ order, items, customer, invoice, proforma = false }) {
   const entity = entityForCountry(customer?.country);
   const body = buildInvoiceHtml({ order, items, customer, entity, invoice, proforma });
-  const fullHtml = renderBrandedHtml(body, entity, { addStamp: true });
+  const fullHtml = renderCaptureHtml(body, entity, { addStamp: true });
   const fileName = `${slugify(invoice?.invoice_number || order.order_number)}-invoice.pdf`;
 
   const blob = await htmlToPdfBlob(fullHtml, fileName);
@@ -177,7 +177,7 @@ export async function generateSupplierPO({ order, po, poItems, supplier, entity:
   // POs are issued from the buying entity. Default Ingredientz Inc (US); pass `entity` to override.
   const entity = entityOverride || entityForCountry(order?.entity_country || "United States");
   const body = buildSupplierPOHtml({ order, po, poItems, supplier, entity });
-  const fullHtml = renderBrandedHtml(body, entity, { addStamp: true });
+  const fullHtml = renderCaptureHtml(body, entity, { addStamp: true });
   const fileName = `${slugify(po?.supplier_po_number || order.order_number)}-po.pdf`;
 
   const blob = await htmlToPdfBlob(fullHtml, fileName);

@@ -122,6 +122,52 @@ export function renderBrandedHtml(bodyHtml, entity, { addStamp = true } = {}) {
 </body></html>`;
 }
 
+// ── Capture-friendly renderer (for html2canvas → stored PDF) ──────────────────
+// Pixel units, normal document flow, logo constrained. html2canvas renders this
+// reliably (unlike the mm/absolute print layout above). Reuses the same doc-body
+// classes (doc-title, section, table, totals, parties) so templates are shared.
+export function renderCaptureHtml(bodyHtml, entity, { addStamp = true } = {}) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const headerSrc = entity.headerImg ? `${origin}${entity.headerImg}` : "";
+  const stampSrc  = entity.stampImg  ? `${origin}${entity.stampImg}`  : "";
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+Pro:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  body{margin:0;background:#fff;font-family:'Inter',Arial,sans-serif;color:#1a1a1a;}
+  .a4{width:794px;min-height:1123px;margin:0 auto;background:#fff;padding:40px 48px;position:relative;font-size:12px;line-height:1.4;}
+  .doc-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0A2540;padding-bottom:14px;margin-bottom:18px;}
+  .doc-head img{height:56px;width:auto;display:block;}
+  .doc-head .ent{text-align:right;font-size:10.5px;color:#555;line-height:1.45;}
+  .doc-head .ent b{color:#0A2540;font-size:13px;}
+  .doc-title{font-family:'Source Serif Pro',Georgia,serif;font-size:22px;text-align:center;color:#0A2540;font-weight:600;margin:6px 0 4px;}
+  .doc-ref{text-align:center;font-size:11px;color:#555;margin-bottom:16px;letter-spacing:.4px;}
+  h2.section,.section{background:#F0F4F8;color:#0A2540;padding:5px 12px;border-left:3px solid #0A2540;text-transform:uppercase;font-size:11.5px;font-weight:600;letter-spacing:.6px;margin:14px 0 6px;font-family:'Inter',sans-serif;}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;margin:8px 0 12px;}
+  th{background:#0A2540;color:#fff;padding:7px 9px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.3px;border:1px solid #0A2540;}
+  td{padding:6px 9px;border:1px solid #D5DCE2;vertical-align:top;}
+  td.num,th.num{text-align:right;}
+  tbody tr:nth-child(even) td{background:#F9FAFB;}
+  strong,b{color:#0A2540;}
+  p{margin:6px 0;}
+  .parties{display:flex;gap:24px;margin:12px 0;}
+  .party{flex:1;font-size:11.5px;line-height:1.5;}
+  .party .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:#7a8794;margin-bottom:3px;}
+  .totals{width:46%;margin-left:54%;}
+  .totals td{border:none;padding:4px 9px;}
+  .totals tr.grand td{border-top:2px solid #0A2540;font-weight:700;color:#0A2540;font-size:14px;}
+</style></head><body>
+<div class="a4">
+  <div class="doc-head">
+    ${headerSrc ? `<img src="${headerSrc}" alt="">` : `<div style="font-weight:700;font-size:20px;color:#0A2540">${entity.name}</div>`}
+    <div class="ent"><b>${entity.name}</b><br>${entity.address}<br>${entity.phone} · ${entity.email}<br>${entity.web}</div>
+  </div>
+  ${bodyHtml}
+  ${addStamp && stampSrc ? `<div style="margin-top:28px;text-align:right"><img src="${stampSrc}" style="width:150px;opacity:.85;transform:rotate(-3deg)" alt=""></div>` : ""}
+</div>
+</body></html>`;
+}
+
 // Option 1 — open a print-to-PDF window (zero dependencies, works today).
 export function openBrandedDoc(bodyHtml, entity, { addStamp = true, autoPrint = true } = {}) {
   const win = window.open("", "_blank");
