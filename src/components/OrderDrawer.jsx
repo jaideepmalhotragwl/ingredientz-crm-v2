@@ -17,6 +17,7 @@ import { InvoiceForm }     from "./orders/InvoiceForm.jsx";
 import { PaymentForm }     from "./orders/PaymentForm.jsx";
 import { ShipmentForm }    from "./orders/ShipmentForm.jsx";
 import { DocumentTrail }   from "./DocumentTrail.jsx";
+import { previewSupplierPO, previewInvoice } from "../lib/docGen.js";
 const TABS = [
   { id: "items",     label: "Items & suppliers" },
   { id: "documents", label: "Documents" },
@@ -288,10 +289,22 @@ export function OrderDrawer({
                         </div>
                         <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
                           <button
+                            onClick={() => {
+                              const items = supplierPOItemsForThisOrder
+                                .filter(pi => pi.supplier_po_id === po.id)
+                                .map(pi => {
+                                  const oi = orderItemsForThisOrder.find(i => i.id === pi.order_item_id) || {};
+                                  return { order_item_id: pi.order_item_id, quantity: pi.quantity, cost_per_unit: pi.cost_per_unit, product_name: oi.product_name, product_spec: oi.product_spec, unit: oi.unit };
+                                });
+                              previewSupplierPO({ order, po, poItems: items, supplier });
+                            }}
+                            style={{ background: C.blue, color: "#fff", border: 0, borderRadius: 7, padding: "5px 13px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                          >👁 View / Print PO</button>
+                          <button
                             onClick={() => onRegenPO?.(po)}
                             style={{ background: "transparent", color: C.blue, border: `1px solid ${C.blue}55`, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
-                          >⟳ {po.pdf_url ? "Regenerate" : "Generate"} PO PDF</button>
-                          {po.pdf_url && <span style={{ fontSize: 10.5, color: C.green }}>✓ PDF attached · Documents tab</span>}
+                          >⟳ Save copy</button>
+                          {po.pdf_url && <span style={{ fontSize: 10.5, color: C.green }}>✓ saved</span>}
                         </div>
                       </div>
                     );
@@ -345,10 +358,14 @@ export function OrderDrawer({
                     {inv.invoice_type === "customer" && (
                       <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
                         <button
+                          onClick={() => previewInvoice({ order, items: orderItemsForThisOrder, customer, invoice: inv })}
+                          style={{ background: C.blue, color: "#fff", border: 0, borderRadius: 7, padding: "5px 13px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                        >👁 View / Print invoice</button>
+                        <button
                           onClick={() => onRegenInvoice?.(inv)}
                           style={{ background: "transparent", color: C.blue, border: `1px solid ${C.blue}55`, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
-                        >⟳ {inv.file_url ? "Regenerate" : "Generate"} invoice PDF</button>
-                        {inv.file_url && <span style={{ fontSize: 10.5, color: C.green }}>✓ PDF attached · Documents tab</span>}
+                        >⟳ Save copy</button>
+                        {inv.file_url && <span style={{ fontSize: 10.5, color: C.green }}>✓ saved</span>}
                       </div>
                     )}
                   </div>
