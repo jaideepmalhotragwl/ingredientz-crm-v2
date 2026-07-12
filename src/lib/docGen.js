@@ -1,35 +1,21 @@
 // src/lib/docGen.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Order-document generator: builds a branded Customer Invoice / Proforma and a
-// Supplier PO from structured order data, renders on the shared letterhead, turns
-// it into a PDF, uploads to the `order-documents` bucket, and writes the file URL
-// back to the record so DocumentTrail's auto-slot lights up (green + Download).
+// Supplier PO from structured order data, renders on the shared letterhead, and
+// stores it as a self-contained HTML file in the `order-documents` bucket.
 //
-// No npm dependency: html2pdf is loaded from a CDN at runtime.
-// Instant preview uses print-to-PDF (openBrandedDoc) and needs nothing at all.
+// Why HTML (not PDF): the branded letterhead renders perfectly in a real browser
+// (same engine as the reformatter). The stored page opens with a "Save as PDF"
+// button (window.print → A4). No html2canvas, no rasterisation, no dependency.
 //
 // FIELD ASSUMPTIONS (adjust to your real `customers` / `suppliers` columns):
 //   customer.company, customer.country, customer.address, customer.city,
 //   customer.state, customer.postcode, customer.tax_id, customer.contact_person
 //   supplier.company, supplier.country, supplier.address, supplier.tax_id
-// Everything else uses columns already confirmed in the codebase.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { renderBrandedHtml, renderCaptureHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
+import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
 import { fmtMoney, uploadOrderDocument, slugify } from "./orderUtils.js";
-
-// html2pdf is loaded from a CDN at runtime (no npm dependency, no build impact).
-const HTML2PDF_CDN = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-function loadHtml2Pdf() {
-  if (typeof window !== "undefined" && window.html2pdf) return Promise.resolve(window.html2pdf);
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = HTML2PDF_CDN;
-    s.onload = () => resolve(window.html2pdf);
-    s.onerror = () => reject(new Error("Could not load html2pdf from CDN. Check network/CSP."));
-    document.head.appendChild(s);
-  });
-}
 
 // ── small helpers ────────────────────────────────────────────────────────────
 function esc(s) {
@@ -133,62 +119,43 @@ export function buildSupplierPOHtml({ order, po, poItems, supplier, entity }) {
   `;
 }
 
-// ── ENGINE: render branded HTML -> PDF blob (via hidden iframe so fonts/images load)
-async function htmlToPdfBlob(fullHtml, filename) {
-  const html2pdf = await loadHtml2Pdf();
-
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = "position:fixed;left:-9999px;top:0;width:820px;height:1160px;border:0";
-  document.body.appendChild(iframe);
-  const doc = iframe.contentDocument;
-  doc.open(); doc.write(fullHtml); doc.close();
-
-  await new Promise(r => setTimeout(r, 1800)); // let fonts + letterhead images load
-  const el = doc.querySelector(".a4");
-  const blob = await html2pdf().set({
-    margin: 0,
-    filename,
-    image: { type: "jpeg", quality: 0.96 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: 820 },
-    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-  }).from(el).outputPdf("blob");
-
-  document.body.removeChild(iframe);
-  return blob;
+// ── Wrap the branded doc with a floating "Save as PDF" toolbar (hidden on print)
+function withToolbar(fullHtml) {
+  const toolbar = `
+<div class="doc-toolbar" style="position:fixed;top:14px;right:14px;z-index:99999;display:flex;gap:8px;font-family:Arial,sans-serif">
+  <button onclick="window.print()" style="background:#1877F2;color:#fff;border:0;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)">🖨 Save as PDF</button>
+</div>
+<style>@media print{.doc-toolbar{display:none!important}}</style>`;
+  return fullHtml.replace("</body>", toolbar + "</body>");
 }
 
-// ── PUBLIC: generate + store a Customer Invoice, then link it to the record ───
+// ── Build a stored HTML File from a body + entity ────────────────────────────
+async function storeDoc(body, entity, prefix, fileName) {
+  const fullHtml = withToolbar(renderBrandedHtml(body, entity, { addStamp: true }));
+  const file = new File([fullHtml], fileName, { type: "text/html" });
+  return uploadOrderDocument(file, prefix); // { path, error }
+}
+
+// ── PUBLIC: generate + store a Customer Invoice (returns { path, error }) ─────
 export async function generateCustomerInvoice({ order, items, customer, invoice, proforma = false }) {
   const entity = entityForCountry(customer?.country);
   const body = buildInvoiceHtml({ order, items, customer, entity, invoice, proforma });
-  const fullHtml = renderCaptureHtml(body, entity, { addStamp: true });
-  const fileName = `${slugify(invoice?.invoice_number || order.order_number)}-invoice.pdf`;
-
-  const blob = await htmlToPdfBlob(fullHtml, fileName);
-  const file = new File([blob], fileName, { type: "application/pdf" });
-  const { path, error } = await uploadOrderDocument(file, `orders/${order.order_number}/customer_invoice`);
-  if (error) return { error };
+  const fileName = `${slugify(invoice?.invoice_number || order.order_number)}-invoice.html`;
+  return storeDoc(body, entity, `orders/${order.order_number}/customer_invoice`, fileName);
   // Caller (App.addInvoice) persists file_url on order_invoices + updates state.
-  return { path };
 }
 
-// ── PUBLIC: generate + store a Supplier PO, then link it to the record ────────
+// ── PUBLIC: generate + store a Supplier PO (returns { path, error }) ──────────
 export async function generateSupplierPO({ order, po, poItems, supplier, entity: entityOverride }) {
   // POs are issued from the buying entity. Default Ingredientz Inc (US); pass `entity` to override.
   const entity = entityOverride || entityForCountry(order?.entity_country || "United States");
   const body = buildSupplierPOHtml({ order, po, poItems, supplier, entity });
-  const fullHtml = renderCaptureHtml(body, entity, { addStamp: true });
-  const fileName = `${slugify(po?.supplier_po_number || order.order_number)}-po.pdf`;
-
-  const blob = await htmlToPdfBlob(fullHtml, fileName);
-  const file = new File([blob], fileName, { type: "application/pdf" });
-  const { path, error } = await uploadOrderDocument(file, `orders/${order.order_number}/supplier_po/${slugify(po?.supplier_po_number)}`);
-  if (error) return { error };
+  const fileName = `${slugify(po?.supplier_po_number || order.order_number)}-po.html`;
+  return storeDoc(body, entity, `orders/${order.order_number}/supplier_po/${slugify(po?.supplier_po_number)}`, fileName);
   // Caller (App.addSupplierPO) persists pdf_url on supplier_pos + updates state.
-  return { path };
 }
 
-// ── PUBLIC: instant preview (no dependency) — opens print-to-PDF window ───────
+// ── PUBLIC: instant preview (no storage) — opens the branded doc in a new tab ─
 export function previewInvoice({ order, items, customer, invoice, proforma = false }) {
   const entity = entityForCountry(customer?.country);
   return openBrandedDoc(buildInvoiceHtml({ order, items, customer, entity, invoice, proforma }), entity, { addStamp: true });
