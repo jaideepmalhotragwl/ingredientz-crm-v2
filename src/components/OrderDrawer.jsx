@@ -260,6 +260,9 @@ export function OrderDrawer({
                     const supplier = suppliers?.find(s => s.id === po.supplier_id);
                     const linkedItems = supplierPOItemsForThisOrder.filter(pi => pi.supplier_po_id === po.id);
                     const poColor = supplierPOColorMap[po.id];
+                    const poValue = (po.total_amount != null && po.total_amount !== "")
+                      ? po.total_amount
+                      : linkedItems.reduce((s, pi) => s + (Number(pi.quantity) || 0) * (Number(pi.cost_per_unit) || 0), 0);
                     return (
                       <div key={po.id} style={{ ...card, borderLeft: `4px solid ${poColor}` }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
@@ -273,7 +276,7 @@ export function OrderDrawer({
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                             <span style={pill(SUPPLIER_PO_STATUS_COLORS[po.status] || C.muted)}>{po.status}</span>
-                            <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtMoney(po.total_amount, po.currency)} {po.currency}</div>
+                            <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtMoney(poValue, po.currency)} {po.currency}</div>
                           </div>
                         </div>
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
