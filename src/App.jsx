@@ -326,6 +326,69 @@ export default function App() {
     await sendSampleRequest(data);
     return data;
   }
+  // ── Multi-product customer sample enquiry: one row per product, shared enquiry_no.
+  async function addSampleEnquiry(payload) {
+    const enquiry_no = `SEN-${Date.now().toString().slice(-6)}`;
+    const created = [];
+    for (let i = 0; i < payload.products.length; i++) {
+      const p = payload.products[i];
+      const hasSupplier = !!(p.supplier_id && p.supplier_email);
+      const seed = {
+        enquiry_no,
+        sample_number: `SR-${(Date.now() + i).toString().slice(-6)}`,
+        customer_id: payload.customer_id,
+        customer_name: payload.customer_name,
+        customer_contact: payload.customer_contact,
+        customer_email: payload.customer_email,
+        customer_country: payload.customer_country,
+        supplier_id: p.supplier_id || null,
+        supplier_name: p.supplier_name || null,
+        supplier_contact: p.supplier_contact || null,
+        supplier_email: p.supplier_email || null,
+        product_name: p.product_name,
+        quantity: p.quantity,
+        unit: p.unit,
+        purpose: p.purpose,
+        notes: payload.enquiry_notes || null,
+        stage: hasSupplier ? "Requested" : "Awaiting Supplier",
+        requested_at: hasSupplier ? new Date().toISOString() : null,
+        followup_loop: hasSupplier ? "supplier" : null,
+        next_followup_at: hasSupplier ? new Date(Date.now() + 3 * 86400000).toISOString() : null,
+        followup_count: 0
+      };
+      const data = await dbInsert("samples", seed);
+      if (data) {
+        created.push(data);
+        if (hasSupplier) await sendSampleRequest(data);
+      }
+    }
+    if (created.length) {
+      setSamples(p => [...created, ...p]);
+      showToast(`✓ Sample enquiry ${enquiry_no} — ${created.length} product${created.length > 1 ? "s" : ""}`);
+    } else {
+      showToast("✗ Failed to create sample enquiry", true);
+    }
+    return created;
+  }
+  // Assign a supplier to an awaiting sample, send the request, move to Requested.
+  async function assignSampleSupplier(sample, supplier) {
+    if (!supplier) { showToast("Pick a supplier", true); return; }
+    const patch = {
+      supplier_id: String(supplier.id),
+      supplier_name: supplier.company,
+      supplier_contact: supplier.contact_name || "",
+      supplier_email: supplier.contact_email || supplier.email || "",
+      stage: "Requested",
+      requested_at: new Date().toISOString(),
+      followup_loop: "supplier",
+      next_followup_at: new Date(Date.now() + 3 * 86400000).toISOString(),
+      followup_count: 0
+    };
+    await updateSample(sample.id, patch);
+    const updated = { ...sample, ...patch };
+    if (updated.supplier_email) await sendSampleRequest(updated);
+    else showToast("⚠ Supplier has no email — request not sent", true);
+  }
   // Fires the sample-request email to the supplier (same engine as the RFQ alert)
   async function sendSampleRequest(sample) {
     if (!sample?.supplier_email) { showToast("⚠ Sample saved — supplier has no email", true); return; }
@@ -811,17 +874,21 @@ export default function App() {
           customers={customers}
           suppliers={suppliers}
           onClose={() => setSampleFormOpen(false)}
-          onSave={addSample}
+          onSave={addSampleEnquiry}
         />
       )}
       {selectedSample && (
         <SampleDrawer
           sample={selectedSample}
+          suppliers={suppliers}
+          allSamples={samples}
           onClose={() => setSelectedSample(null)}
           onAdvance={advanceSample}
           onUpdate={updateSample}
           onChase={sendSampleChase}
           onResend={sendSampleRequest}
+          onAssignSupplier={assignSampleSupplier}
+          onOpenSample={s => setSelectedSample(s)}
         />
       )}
       <style>{`
