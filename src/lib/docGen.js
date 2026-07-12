@@ -17,7 +17,6 @@
 
 import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
 import { fmtMoney, uploadOrderDocument, slugify } from "./orderUtils.js";
-import { supabase } from "../config.js";
 
 // html2pdf is loaded from a CDN at runtime (no npm dependency, no build impact).
 const HTML2PDF_CDN = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
@@ -169,11 +168,7 @@ export async function generateCustomerInvoice({ order, items, customer, invoice,
   const file = new File([blob], fileName, { type: "application/pdf" });
   const { path, error } = await uploadOrderDocument(file, `orders/${order.order_number}/customer_invoice`);
   if (error) return { error };
-
-  // DocumentTrail's customer_invoice auto-slot reads invoices.file_url
-  if (invoice?.id) {
-    await supabase.from("invoices").update({ file_url: path }).eq("id", invoice.id);
-  }
+  // Caller (App.addInvoice) persists file_url on order_invoices + updates state.
   return { path };
 }
 
@@ -189,11 +184,7 @@ export async function generateSupplierPO({ order, po, poItems, supplier, entity:
   const file = new File([blob], fileName, { type: "application/pdf" });
   const { path, error } = await uploadOrderDocument(file, `orders/${order.order_number}/supplier_po/${slugify(po?.supplier_po_number)}`);
   if (error) return { error };
-
-  // DocumentTrail's supplier_po auto-slot reads supplier_pos.pdf_url
-  if (po?.id) {
-    await supabase.from("supplier_pos").update({ pdf_url: path }).eq("id", po.id);
-  }
+  // Caller (App.addSupplierPO) persists pdf_url on supplier_pos + updates state.
   return { path };
 }
 
