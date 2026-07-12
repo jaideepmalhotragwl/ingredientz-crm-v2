@@ -15,7 +15,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
-import { fmtMoney, uploadOrderDocument, slugify } from "./orderUtils.js";
+import { fmtMoney, slugify } from "./orderUtils.js";
+import { supabase } from "../config.js";
 
 // ── small helpers ────────────────────────────────────────────────────────────
 function esc(s) {
@@ -132,8 +133,15 @@ function withToolbar(fullHtml) {
 // ── Build a stored HTML File from a body + entity ────────────────────────────
 async function storeDoc(body, entity, prefix, fileName) {
   const fullHtml = withToolbar(renderBrandedHtml(body, entity, { addStamp: true }));
-  const file = new File([fullHtml], fileName, { type: "text/html" });
-  return uploadOrderDocument(file, prefix); // { path, error }
+  const base = slugify(fileName.replace(/\.html$/i, ""));
+  const path = `${prefix}/${Date.now()}-${base}.html`;
+  const blob = new Blob([fullHtml], { type: "text/html; charset=utf-8" });
+  // Explicit contentType so Supabase serves it as a rendered page (not raw text).
+  const { error } = await supabase.storage
+    .from("order-documents")
+    .upload(path, blob, { cacheControl: "3600", upsert: true, contentType: "text/html; charset=utf-8" });
+  if (error) { console.error("storeDoc upload:", error); return { error }; }
+  return { path };
 }
 
 // ── PUBLIC: generate + store a Customer Invoice (returns { path, error }) ─────
