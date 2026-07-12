@@ -1,5 +1,14 @@
 import { useState } from "react";
 import { C, UNITS } from "../constants.js";
+// Standard display name: Title Case, but keep short all-caps acronyms (PT, AOS, USA, LLC).
+export function fmtName(s) {
+  return String(s || "").trim().replace(/\S+/g, w => {
+    const bare = w.replace(/[^A-Za-z]/g, "");
+    if (bare.length <= 3 && w === w.toUpperCase()) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  });
+}
+const byName = (a, b) => (a.company || "").localeCompare(b.company || "", undefined, { sensitivity: "base" });
 // Customer sample ENQUIRY — one customer, one or more products.
 // Each product becomes its own sample request (own supplier + own journey),
 // grouped under a shared enquiry_no. Supplier is optional per product here
@@ -9,7 +18,8 @@ export function SampleForm({ customers, suppliers, onClose, onSave }) {
   const [notes, setNotes] = useState("");
   const [rows, setRows] = useState([blankRow()]);
   const [saving, setSaving] = useState(false);
-  const activeSuppliers = (suppliers || []).filter(s => s.status === "active" || !s.status);
+  const activeSuppliers = (suppliers || []).filter(s => s.status === "active" || !s.status).slice().sort(byName);
+  const sortedCustomers = (customers || []).slice().sort(byName);
 
   function blankRow() { return { product_name: "", quantity: "", unit: "g", supplier_id: "", purpose: "" }; }
   function setRow(i, patch) { setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r)); }
@@ -71,7 +81,7 @@ export function SampleForm({ customers, suppliers, onClose, onSave }) {
           <label style={label}>Customer</label>
           <select style={{ ...inp, color: customerId ? C.ink : C.muted }} value={customerId} onChange={e => setCustomerId(e.target.value)}>
             <option value="">Select customer…</option>
-            {(customers || []).map(c => <option key={c.id} value={String(c.id)}>{c.company}{c.country ? ` (${c.country})` : ""}</option>)}
+            {sortedCustomers.map(c => <option key={c.id} value={String(c.id)}>{fmtName(c.company)}{c.country ? ` (${c.country})` : ""}</option>)}
           </select>
         </div>
 
@@ -89,7 +99,7 @@ export function SampleForm({ customers, suppliers, onClose, onSave }) {
               </select>
               <select style={{ ...inp, color: r.supplier_id ? C.ink : C.muted }} value={r.supplier_id} onChange={e => setRow(i, { supplier_id: e.target.value })}>
                 <option value="">— assign later —</option>
-                {activeSuppliers.map(s => <option key={s.id} value={String(s.id)}>{s.company}{s.country ? ` (${s.country})` : ""}</option>)}
+                {activeSuppliers.map(s => <option key={s.id} value={String(s.id)}>{fmtName(s.company)}{s.country ? ` (${s.country})` : ""}</option>)}
               </select>
               <input style={inp} value={r.purpose} onChange={e => setRow(i, { purpose: e.target.value })} placeholder="stability + spec" />
               <button onClick={() => removeRow(i)} title="Remove" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 7, color: C.muted, cursor: rows.length === 1 ? "not-allowed" : "pointer", fontSize: 13, height: 34 }} disabled={rows.length === 1}>✕</button>

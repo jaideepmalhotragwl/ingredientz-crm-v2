@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { C } from "../constants.js";
 import { fmtDate } from "../utils.js";
+import { fmtName } from "./SampleForm.jsx";
 const STAGES = [
   "Requested",
   "Supplier Shipped",
@@ -32,7 +33,8 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
   const [assignSupplierId, setAssignSupplierId] = useState("");
   const [busy, setBusy] = useState(false);
   if (!sample) return null;
-  const activeSuppliers = (suppliers || []).filter(s => s.status === "active" || !s.status);
+  const activeSuppliers = (suppliers || []).filter(s => s.status === "active" || !s.status)
+    .slice().sort((a, b) => (a.company || "").localeCompare(b.company || "", undefined, { sensitivity: "base" }));
   const awaiting = sample.stage === "Awaiting Supplier" || !sample.supplier_id;
   const curIdx = awaiting ? -1 : Math.max(0, STAGES.indexOf(sample.stage || "Requested"));
   const headColor = awaiting ? STAGE_COLORS["Awaiting Supplier"] :
@@ -149,7 +151,7 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <select style={{ ...inp, minWidth: 240 }} value={assignSupplierId} onChange={e => setAssignSupplierId(e.target.value)}>
                   <option value="">Select supplier…</option>
-                  {activeSuppliers.map(s => <option key={s.id} value={String(s.id)}>{s.company}{s.country ? ` (${s.country})` : ""}</option>)}
+                  {activeSuppliers.map(s => <option key={s.id} value={String(s.id)}>{fmtName(s.company)}{s.country ? ` (${s.country})` : ""}</option>)}
                 </select>
                 <button style={btnPrimary} disabled={busy || !assignSupplierId} onClick={assign}>Assign &amp; send request →</button>
               </div>
