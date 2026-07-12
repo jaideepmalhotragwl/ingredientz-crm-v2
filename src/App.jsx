@@ -525,6 +525,38 @@ export default function App() {
     setInvoices(p => p.map(i => i.id === id ? { ...i, ...patch } : i));
     showToast("✓ Invoice updated");
   }
+  // Rebuild the branded PDF for an existing supplier PO (no new record).
+  async function regenerateSupplierPODoc(po) {
+    try {
+      const order = orders.find(o => o.id === po.order_id);
+      const supplier = suppliers.find(s => s.id === po.supplier_id);
+      const items = supplierPOItems.filter(pi => pi.supplier_po_id === po.id).map(pi => {
+        const oi = orderItems.find(i => i.id === pi.order_item_id) || {};
+        return { order_item_id: pi.order_item_id, quantity: pi.quantity, cost_per_unit: pi.cost_per_unit, product_name: oi.product_name, product_spec: oi.product_spec, unit: oi.unit };
+      });
+      showToast("Generating PO PDF…");
+      const { path, error } = await generateSupplierPO({ order, po, poItems: items, supplier });
+      if (error || !path) { showToast("✗ PDF generation failed", true); return; }
+      await dbUpdate("supplier_pos", po.id, { pdf_url: path });
+      setSupplierPOs(p => p.map(x => x.id === po.id ? { ...x, pdf_url: path } : x));
+      showToast("✓ PO PDF regenerated");
+    } catch (e) { console.error("regenerateSupplierPODoc:", e); showToast("✗ PDF generation failed", true); }
+  }
+  // Rebuild the branded PDF for an existing customer invoice.
+  async function regenerateInvoiceDoc(inv) {
+    try {
+      if (inv.invoice_type !== "customer") { showToast("Only customer invoices are auto-generated", true); return; }
+      const order = orders.find(o => o.id === inv.order_id);
+      const items = orderItems.filter(i => i.order_id === inv.order_id);
+      const customer = customers.find(c => c.id === order?.customer_id);
+      showToast("Generating invoice PDF…");
+      const { path, error } = await generateCustomerInvoice({ order, items, customer, invoice: inv });
+      if (error || !path) { showToast("✗ PDF generation failed", true); return; }
+      await dbUpdate("order_invoices", inv.id, { file_url: path });
+      setInvoices(p => p.map(x => x.id === inv.id ? { ...x, file_url: path } : x));
+      showToast("✓ Invoice PDF regenerated");
+    } catch (e) { console.error("regenerateInvoiceDoc:", e); showToast("✗ PDF generation failed", true); }
+  }
   async function addPayment(paymentRow) {
     try {
       const newPay = await dbInsert("order_payments", paymentRow);
@@ -765,6 +797,8 @@ export default function App() {
           onUpdateStatus={updateOrderStatus}
           onAddSupplierPO={addSupplierPO}
           onUpdateSupplierPO={updateSupplierPO}
+          onRegenPO={regenerateSupplierPODoc}
+          onRegenInvoice={regenerateInvoiceDoc}
           onAddInvoice={addInvoice}
           onUpdateInvoice={updateInvoice}
           onAddPayment={addPayment}
