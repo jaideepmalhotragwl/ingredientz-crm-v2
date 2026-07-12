@@ -3,6 +3,7 @@ import { supabase } from "./config.js";
 import { C, STAGES } from "./constants.js";
 import { dbGet, dbInsert, dbUpdate, dbDelete, sendEmail, getSenderEmail, buildEmailHtml, daysUntil } from "./utils.js";
 import { uploadOrderDocument } from "./lib/orderUtils.js";
+import { generateCustomerInvoice, generateSupplierPO } from "./lib/docGen.js";
 import { LOGO, QUOTATION_TEMPLATE } from "./templates.js";
 import { Dashboard }       from "./components/Dashboard.jsx";
 import { EnquiriesTab }    from "./components/EnquiriesTab.jsx";
@@ -26,7 +27,6 @@ import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
 import { MarketSignals }   from "./components/MarketSignals.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
-
 export default function App() {
   const [loading, setLoading]       = useState(true);
   const [toast, setToast]           = useState(null);
@@ -62,12 +62,10 @@ export default function App() {
     setPendingApprovals((sup.count || 0) + (prod.count || 0));
   }
   useEffect(() => { refreshPendingApprovals(); }, []);
-
   function showToast(msg, err = false) {
     setToast({ msg, err });
     setTimeout(() => setToast(null), 3000);
   }
-
   useEffect(() => {
     Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
@@ -87,14 +85,12 @@ export default function App() {
       setSamples(smpls || []);
     }).finally(() => setLoading(false));
   }, []);
-
   // ── Enquiry ops ──────────────────────────────────────────────────────────────
   async function addEnquiry(row) {
     const data = await dbInsert("enquiries", row);
     if (data) {
       setEnquiries(p => [data, ...p]);
       showToast(`✓ Enquiry saved — ${row.customer_name}`);
-
       // Find suppliers mapped to this enquiry's products (normalised name match)
       const norm = s => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
       const enqProducts = Array.isArray(row.products) ? row.products : [];
@@ -114,7 +110,6 @@ export default function App() {
         });
         supplierNames = [...found];
       } catch (e) { console.error("RFQ supplier lookup:", e); }
-
       // "RFQ ready to send" alert → assigned rep + business addresses
       const repUser = users.find(x => x.name === row.assigned_to);
       const recipients = [
@@ -127,7 +122,6 @@ export default function App() {
       const supplierLine = supplierNames.length
         ? supplierNames.join(", ")
         : "No mapped supplier yet — open the enquiry to add one";
-
       sendEmail({
         from: `Ingredientz CRM <sales@mail.ingredientz.co>`,
         to,
@@ -144,7 +138,6 @@ export default function App() {
         ], "Ingredientz CRM · Auto-notification"),
         text: `RFQ ready for ${row.customer_name} (ENQ-${data.id}). Suppliers: ${supplierLine}. Open the enquiry to review and send.`
       });
-
       // ── Auto-acknowledgement to the customer (if we have their email) ──
       const custEmail = row.customer_email
         || customers.find(c => String(c.id) === String(row.customer_id))?.email
@@ -230,7 +223,6 @@ export default function App() {
     await dbDelete("tasks", id);
     setTasks(p => p.filter(t => t.id !== id));
   }
-
   // ── Daily report ops (Team Activity / Team Desk) ───────────────────────────────
   // Upsert one row per rep per day (table has unique(user_name, report_date)).
   async function saveDailyReport(row) {
@@ -257,7 +249,6 @@ export default function App() {
       return false;
     }
   }
-
   async function addCustomer(row)    { const data = await dbInsert("customers", row); if (data) { setCustomers(p => [data, ...p]); showToast(`✓ ${row.company} added`); } }
   async function updateCustomer(id, row) { await dbUpdate("customers", id, row); setCustomers(p => p.map(c => c.id === id ? { ...c, ...row } : c)); }
   async function deleteCustomer(id)  { await dbDelete("customers", id); setCustomers(p => p.filter(c => c.id !== id)); }
@@ -316,7 +307,6 @@ export default function App() {
     const data = await dbInsert("email_threads", row);
     if (data) { setThreads(p => [data, ...p]); showToast("✓ Email logged"); }
   }
-
   // ── SAMPLE OPS ─────────────────────────────────────────────────────────────
   async function addSample(row) {
     const sample_number = `SR-${Date.now().toString().slice(-6)}`;
@@ -336,7 +326,6 @@ export default function App() {
     await sendSampleRequest(data);
     return data;
   }
-
   // Fires the sample-request email to the supplier (same engine as the RFQ alert)
   async function sendSampleRequest(sample) {
     if (!sample?.supplier_email) { showToast("⚠ Sample saved — supplier has no email", true); return; }
@@ -359,13 +348,11 @@ export default function App() {
     });
     showToast(res?.id ? `✓ Sample request sent to ${sample.supplier_name}` : `✓ Sample request sent`);
   }
-
   async function updateSample(id, patch) {
     await dbUpdate("samples", id, { ...patch, updated_at: new Date().toISOString() });
     setSamples(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
     if (selectedSample?.id === id) setSelectedSample(s => ({ ...s, ...patch }));
   }
-
   // Advance to a stage, stamping the right timestamp + setting the follow-up loop
   async function advanceSample(sample, toStage, extra = {}) {
     const now = new Date().toISOString();
@@ -380,7 +367,6 @@ export default function App() {
     await updateSample(sample.id, { stage: toStage, ...stamp, ...extra });
     showToast(`✓ ${sample.sample_number} → ${toStage}`);
   }
-
   // Manual chase — sends immediately and bumps the schedule
   async function sendSampleChase(sample, who) {
     const to = who === "supplier" ? sample.supplier_email : sample.customer_email;
@@ -409,7 +395,6 @@ export default function App() {
     });
     showToast(res?.id ? `✓ Chase sent to ${name}` : `✓ Chase sent`);
   }
-
   // ── ORDER OPS ────────────────────────────────────────────────────────────────
   async function addOrder(orderRow, itemRows, poFile) {
     try {
@@ -444,14 +429,12 @@ export default function App() {
       return null;
     }
   }
-
   async function updateOrder(id, patch) {
     await dbUpdate("orders", id, patch);
     setOrders(p => p.map(o => o.id === id ? { ...o, ...patch } : o));
     if (selectedOrder?.id === id) setSelectedOrder(s => ({ ...s, ...patch }));
     showToast("✓ Order updated");
   }
-
   async function updateOrderStatus(id, status) {
     await dbUpdate("orders", id, { status });
     setOrders(p => p.map(o => o.id === id ? { ...o, status } : o));
@@ -460,28 +443,35 @@ export default function App() {
     if (hist) setStatusHistory(p => [...hist, ...p.filter(h => h.order_id !== id)]);
     showToast(`✓ Status → ${status}`);
   }
-
-  async function addSupplierPO(poRow, poItemRows, pdfFile) {
+  async function addSupplierPO(poRow, poItemRows, pdfFile, opts = {}) {
     try {
       const newPO = await dbInsert("supplier_pos", poRow);
       if (!newPO) { showToast("✗ Failed to create supplier PO", true); return null; }
+
+      const order = orders.find(o => o.id === poRow.order_id);
+      let pdfPath = null;
       if (pdfFile) {
-        const order = orders.find(o => o.id === poRow.order_id);
         const { path, error } = await uploadOrderDocument(pdfFile, `orders/${order?.order_number || poRow.order_id}/supplier_po/${newPO.supplier_po_number}`);
-        if (!error && path) {
-          await dbUpdate("supplier_pos", newPO.id, { pdf_url: path });
-          newPO.pdf_url = path;
-        }
+        if (!error && path) pdfPath = path;
+      } else if (opts.autoPdf) {
+        const supplier = suppliers.find(s => s.id === poRow.supplier_id);
+        const enriched = (poItemRows || []).map(r => {
+          const oi = orderItems.find(i => i.id === r.order_item_id) || {};
+          return { ...r, product_name: oi.product_name, product_spec: oi.product_spec, unit: oi.unit };
+        });
+        try {
+          const { path, error } = await generateSupplierPO({ order, po: newPO, poItems: enriched, supplier });
+          if (!error && path) pdfPath = path; else showToast("⚠ PO saved — PDF generation failed", true);
+        } catch (e) { console.error("generateSupplierPO:", e); showToast("⚠ PO saved — PDF generation failed", true); }
       }
+      if (pdfPath) { await dbUpdate("supplier_pos", newPO.id, { pdf_url: pdfPath }); newPO.pdf_url = pdfPath; }
+
       const itemsToInsert = poItemRows.map(it => ({ ...it, supplier_po_id: newPO.id }));
       const { data: savedItems } = await supabase.from("supplier_po_items").insert(itemsToInsert).select();
       setSupplierPOs(p => [newPO, ...p]);
       if (savedItems) setSupplierPOItems(p => [...savedItems, ...p]);
-      if (poRow.order_id) {
-        const order = orders.find(o => o.id === poRow.order_id);
-        if (order?.status === "Received") {
-          await updateOrderStatus(poRow.order_id, "Suppliers Assigned");
-        }
+      if (poRow.order_id && order?.status === "Received") {
+        await updateOrderStatus(poRow.order_id, "Suppliers Assigned");
       }
       showToast(`✓ Supplier PO ${newPO.supplier_po_number} created`);
       return newPO;
@@ -491,32 +481,36 @@ export default function App() {
       return null;
     }
   }
-
   async function updateSupplierPO(id, patch) {
     await dbUpdate("supplier_pos", id, patch);
     setSupplierPOs(p => p.map(po => po.id === id ? { ...po, ...patch } : po));
     showToast("✓ Supplier PO updated");
   }
-
-  async function addInvoice(invoiceRow, file) {
+  async function addInvoice(invoiceRow, file, opts = {}) {
     try {
       const newInv = await dbInsert("order_invoices", invoiceRow);
       if (!newInv) { showToast("✗ Failed to create invoice", true); return null; }
+
+      const order = orders.find(o => o.id === invoiceRow.order_id);
+      const isCustomer = invoiceRow.invoice_type === "customer";
+      let filePath = null;
       if (file) {
-        const order = orders.find(o => o.id === invoiceRow.order_id);
-        const subfolder = invoiceRow.type === "customer" ? "customer_invoice" : "supplier_invoice";
+        const subfolder = isCustomer ? "customer_invoice" : "supplier_invoice";
         const { path, error } = await uploadOrderDocument(file, `orders/${order?.order_number || invoiceRow.order_id}/${subfolder}/${newInv.invoice_number}`);
-        if (!error && path) {
-          await dbUpdate("order_invoices", newInv.id, { file_url: path });
-          newInv.file_url = path;
-        }
+        if (!error && path) filePath = path;
+      } else if (isCustomer && opts.autoPdf) {
+        const items = orderItems.filter(i => i.order_id === invoiceRow.order_id);
+        const customer = customers.find(c => c.id === order?.customer_id);
+        try {
+          const { path, error } = await generateCustomerInvoice({ order, items, customer, invoice: newInv, proforma: opts.proforma });
+          if (!error && path) filePath = path; else showToast("⚠ Invoice saved — PDF generation failed", true);
+        } catch (e) { console.error("generateCustomerInvoice:", e); showToast("⚠ Invoice saved — PDF generation failed", true); }
       }
+      if (filePath) { await dbUpdate("order_invoices", newInv.id, { file_url: filePath }); newInv.file_url = filePath; }
+
       setInvoices(p => [newInv, ...p]);
-      if (invoiceRow.type === "customer" && invoiceRow.order_id) {
-        const order = orders.find(o => o.id === invoiceRow.order_id);
-        if (order?.status === "Confirmed" || order?.status === "Suppliers Assigned") {
-          await updateOrderStatus(invoiceRow.order_id, "Invoiced");
-        }
+      if (isCustomer && invoiceRow.order_id && (order?.status === "Confirmed" || order?.status === "Suppliers Assigned")) {
+        await updateOrderStatus(invoiceRow.order_id, "Invoiced");
       }
       showToast(`✓ Invoice ${newInv.invoice_number} logged`);
       return newInv;
@@ -526,13 +520,11 @@ export default function App() {
       return null;
     }
   }
-
   async function updateInvoice(id, patch) {
     await dbUpdate("order_invoices", id, patch);
     setInvoices(p => p.map(i => i.id === id ? { ...i, ...patch } : i));
     showToast("✓ Invoice updated");
   }
-
   async function addPayment(paymentRow) {
     try {
       const newPay = await dbInsert("order_payments", paymentRow);
@@ -568,7 +560,6 @@ export default function App() {
       return null;
     }
   }
-
   async function addShipment(shipmentRow) {
     try {
       const newShip = await dbInsert("order_shipments", shipmentRow);
@@ -592,13 +583,11 @@ export default function App() {
       return null;
     }
   }
-
   async function updateShipment(id, patch) {
     await dbUpdate("order_shipments", id, patch);
     setShipments(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
     showToast("✓ Shipment updated");
   }
-
   async function handleRefresh() {
     setLoading(true);
     const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls] = await Promise.all([
@@ -621,13 +610,11 @@ export default function App() {
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
-
   const overdueTaskCount = tasks.filter(t => t.status !== "Done" && t.due_date && daysUntil(t.due_date) < 0).length;
   const overdueReminderCount = enquiries.filter(e => {
     const d = daysUntil(e.reminder_date);
     return d !== null && d <= 0 && !["PO Received", "Lost"].includes(e.stage);
   }).length;
-
   // ── Team Desk: count reps who haven't filed today's Daily MIS (drives the tab badge) ──
   const todayStr = new Date().toISOString().slice(0, 10);
   const reportedTodaySet = new Set(
@@ -636,7 +623,6 @@ export default function App() {
   const missingReportCount = users.filter(
     u => (u.active !== false) && u.name && !reportedTodaySet.has(u.name)
   ).length;
-
   const TABS = [
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
@@ -740,7 +726,6 @@ export default function App() {
         {activeTab === "teamdesk"   && <TeamDesk supabase={supabase} users={users} dailyReports={dailyReports} onSaveReport={saveDailyReport} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} enquiries={enquiries} quotations={quotations} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
-
       <EnquiryDrawer
         enq={selectedEnq}
         onClose={() => setSelectedEnq(null)}
@@ -755,7 +740,6 @@ export default function App() {
         onLogEmail={logEmail}
         onThreadInserted={row => setThreads(p => [row, ...p])}
       />
-
       {orderFormOpen && (
         <OrderForm
           customers={customers}
@@ -764,7 +748,6 @@ export default function App() {
           onSave={addOrder}
         />
       )}
-
       {selectedOrder && (
         <OrderDrawer
           order={selectedOrder}
@@ -789,7 +772,6 @@ export default function App() {
           onUpdateShipment={updateShipment}
         />
       )}
-
       {sampleFormOpen && (
         <SampleForm
           customers={customers}
@@ -798,7 +780,6 @@ export default function App() {
           onSave={addSample}
         />
       )}
-
       {selectedSample && (
         <SampleDrawer
           sample={selectedSample}
@@ -809,7 +790,6 @@ export default function App() {
           onResend={sendSampleRequest}
         />
       )}
-
       <style>{`
         *{box-sizing:border-box;}
         ::-webkit-scrollbar{width:5px;height:5px;}
