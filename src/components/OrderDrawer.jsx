@@ -29,7 +29,8 @@ export function OrderDrawer({
   order, orderItems, supplierPOs, supplierPOItems, invoices, payments, shipments, statusHistory,
   customers, suppliers,
   onClose, onStatusChange,
-  onAddSupplierPO, onAddInvoice, onAddPayment, onAddShipment, onUpdateShipment
+  onAddSupplierPO, onAddInvoice, onAddPayment, onAddShipment, onUpdateShipment,
+  onRegenPO, onRegenInvoice
 }) {
   const [activeTab, setActiveTab] = useState("items");
   const [showSupplierPOForm, setShowSupplierPOForm] = useState(false);
@@ -285,6 +286,13 @@ export function OrderDrawer({
                           {po.incoterms && <span> · {po.incoterms}</span>}
                           {po.expected_ship_date && <span> · Ships {fmtDate(po.expected_ship_date)}</span>}
                         </div>
+                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                          <button
+                            onClick={() => onRegenPO?.(po)}
+                            style={{ background: "transparent", color: C.blue, border: `1px solid ${C.blue}55`, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                          >⟳ {po.pdf_url ? "Regenerate" : "Generate"} PO PDF</button>
+                          {po.pdf_url && <span style={{ fontSize: 10.5, color: C.green }}>✓ PDF attached · Documents tab</span>}
+                        </div>
                       </div>
                     );
                   })}
@@ -334,6 +342,15 @@ export function OrderDrawer({
                         <span style={pill(INVOICE_STATUS_COLORS[inv.status] || C.muted)}>{inv.status}</span>
                       </div>
                     </div>
+                    {inv.invoice_type === "customer" && (
+                      <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                        <button
+                          onClick={() => onRegenInvoice?.(inv)}
+                          style={{ background: "transparent", color: C.blue, border: `1px solid ${C.blue}55`, borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                        >⟳ {inv.file_url ? "Regenerate" : "Generate"} invoice PDF</button>
+                        {inv.file_url && <span style={{ fontSize: 10.5, color: C.green }}>✓ PDF attached · Documents tab</span>}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
