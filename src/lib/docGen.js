@@ -163,12 +163,20 @@ export async function generateSupplierPO({ order, po, poItems, supplier, entity:
   // Caller (App.addSupplierPO) persists pdf_url on supplier_pos + updates state.
 }
 
-// ── PUBLIC: instant preview (no storage) — opens the branded doc in a new tab ─
+// ── PUBLIC: live view — renders the branded doc in a new tab (no storage, no
+// auto-print). The page carries a "Save as PDF" button. Always renders correctly.
+function openRenderedDoc(body, entity) {
+  const html = withToolbar(renderBrandedHtml(body, entity, { addStamp: true }));
+  const win = window.open("", "_blank");
+  if (!win) return { ok: false, error: "Popup blocked. Allow popups for this site." };
+  win.document.open(); win.document.write(html); win.document.close();
+  return { ok: true };
+}
 export function previewInvoice({ order, items, customer, invoice, proforma = false }) {
   const entity = entityForCountry(customer?.country);
-  return openBrandedDoc(buildInvoiceHtml({ order, items, customer, entity, invoice, proforma }), entity, { addStamp: true });
+  return openRenderedDoc(buildInvoiceHtml({ order, items, customer, entity, invoice, proforma }), entity);
 }
 export function previewSupplierPO({ order, po, poItems, supplier }) {
   const entity = entityForCountry(order?.entity_country || "United States");
-  return openBrandedDoc(buildSupplierPOHtml({ order, po, poItems, supplier, entity }), entity, { addStamp: true });
+  return openRenderedDoc(buildSupplierPOHtml({ order, po, poItems, supplier, entity }), entity);
 }
