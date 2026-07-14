@@ -52,6 +52,40 @@ function partiesHtml(fromLabel, from, toLabel, to) {
   </div>`;
 }
 
+// ── Standard Terms & Conditions (printed on a second page of each document) ──
+const CUSTOMER_TERMS = [
+  { n: 1, title: "Product Specifications", text: "All products are supplied in accordance with the agreed specifications, Certificate of Analysis (COA), and any approved pre-shipment sample, where applicable." },
+  { n: 2, title: "Delivery Schedule", text: "All delivery dates are estimates based on supplier commitments and logistics schedules. Ingredientz shall not be liable for delays caused by carriers, customs authorities, force majeure events, or circumstances beyond its reasonable control." },
+  { n: 3, title: "Sample Approval", text: "For applicable orders, shipment will proceed after customer approval of the representative pre-shipment sample. Once approved, minor natural variations that remain within the agreed specification shall not constitute grounds for rejection." },
+  { n: 4, title: "Expedited Orders", text: "Where the customer requests expedited shipment and elects to waive or shorten the standard sample-approval process, Ingredientz shall not be responsible for quality disputes arising from characteristics that would reasonably have been identified during standard approval, provided the goods conform to the agreed specifications. Return freight, replacement freight, and additional logistics costs resulting from such requests may be charged to the customer." },
+  { n: 5, title: "Inspection Upon Receipt", text: "Customers shall inspect all goods immediately upon delivery. Any discrepancy in quantity, damage, or quality must be reported in writing within 7 calendar days of receipt, together with supporting documentation and photographs. Failure to notify within this period shall constitute acceptance of the goods." },
+  { n: 6, title: "Returns", text: "Returns require prior written authorization. Products manufactured or sourced specifically for the customer may not be returned except where they materially fail to meet the agreed specifications." },
+  { n: 7, title: "Storage", text: "After delivery, proper storage conditions are the customer's responsibility. Ingredientz shall not be responsible for deterioration caused by improper handling or storage." },
+  { n: 8, title: "Limitation of Liability", text: "Ingredientz's maximum liability shall be limited to the invoice value of the affected goods. Ingredientz shall not be liable for indirect, consequential, incidental, or business-interruption losses." },
+  { n: 9, title: "Force Majeure", text: "Ingredientz shall not be liable for delays or failure to perform resulting from events beyond its reasonable control, including natural disasters, pandemics, strikes, transportation disruptions, government actions, customs delays, or supplier force majeure." },
+  { n: 10, title: "Governing Specifications", text: "In the event of any dispute, the mutually agreed product specification and COA shall govern product acceptance." }
+];
+const SUPPLIER_TERMS = [
+  { n: 1, title: "Product Conformity", text: "Supplier warrants that all goods supplied shall conform to the agreed specifications, COA, approved sample (where applicable), and all applicable regulatory requirements." },
+  { n: 2, title: "Documentation", text: "Each shipment shall include: COA, Batch Number, Manufacturing Date, Expiry Date, Packing List, and regulatory documents where applicable." },
+  { n: 3, title: "Change Control", text: "Supplier shall not change raw materials, manufacturing processes, manufacturing site, packaging, or product specifications without prior written approval from Ingredientz." },
+  { n: 4, title: "Notification of Delay", text: "Supplier shall immediately notify Ingredientz of any expected production or shipment delay." },
+  { n: 5, title: "Packaging", text: "Supplier shall package goods appropriately for domestic and international transportation and shall be responsible for losses arising from inadequate packaging." },
+  { n: 6, title: "Non-Conforming Material", text: "Supplier shall promptly replace or refund any material that fails to meet the agreed specifications and shall reimburse reasonable return freight and related costs where the non-conformance is attributable to the supplier." },
+  { n: 7, title: "Traceability", text: "Supplier shall maintain complete batch traceability and retain production and quality records for a minimum of five years, or longer where required by applicable regulations." },
+  { n: 8, title: "Confidentiality", text: "Supplier shall maintain the confidentiality of all commercial information, pricing, customer details, and product formulations shared by Ingredientz." },
+  { n: 9, title: "Compliance", text: "Supplier warrants compliance with all applicable laws, regulations, and agreed certifications (such as FSSC 22000, ISO, GMP, HACCP, Halal, Kosher, Organic, USP, EP, FCC, or other agreed standards), where applicable." }
+];
+function termsBlock(heading, terms) {
+  var items = terms.map(function (t) {
+    return `<p style="margin:3px 0;font-size:8pt;line-height:1.35;color:#333"><strong style="color:#0A2540">${t.n}. ${esc(t.title)}.</strong> ${esc(t.text)}</p>`;
+  }).join("");
+  return `<div style="page-break-before:always;padding-top:6px">
+    <div class="doc-title" style="font-size:14pt;margin-bottom:8px">${esc(heading)}</div>
+    ${items}
+  </div>`;
+}
+
 // ── TEMPLATE: Customer Invoice / Proforma ────────────────────────────────────
 export function buildInvoiceHtml({ order, items, customer, entity, invoice, proforma = false }) {
   const cur = invoice?.currency || order.currency || "USD";
@@ -85,6 +119,7 @@ export function buildInvoiceHtml({ order, items, customer, entity, invoice, prof
     ${order.payment_terms ? `<p><strong>Payment terms:</strong> ${esc(order.payment_terms)}</p>` : ""}
     <h2 class="section">Bank details</h2>
     <p style="font-size:8.5pt;color:#555">[Bank name · A/C · IBAN/SWIFT — pull from entity settings]</p>
+    ${termsBlock("Standard Terms & Conditions", CUSTOMER_TERMS)}
   `;
 }
 
@@ -118,6 +153,7 @@ export function buildSupplierPOHtml({ order, po, poItems, supplier, entity }) {
     </table>
     ${po?.payment_terms ? `<p><strong>Payment terms:</strong> ${esc(po.payment_terms)}</p>` : ""}
     ${po?.incoterms ? `<p><strong>Incoterms:</strong> ${esc(po.incoterms)}</p>` : ""}
+    ${termsBlock("Purchase Order — Terms & Conditions", SUPPLIER_TERMS)}
   `;
 }
 
