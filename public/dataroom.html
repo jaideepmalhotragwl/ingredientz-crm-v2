@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ingredientz · Due Diligence Data Room (synced)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root{--blue:#1877F2;--ink:#111318;--mut:#6b7280;--line:#e6e8eb;--bg:#f5f7fa;--card:#fff;
+--green:#1E7A46;--greenbg:#E6F4EC;--amber:#B4690E;--amberbg:#FCEFD6;--grey:#6b7280;--greybg:#eef0f2;
+--purple:#6D28D9;--purplebg:#EDE7FB;--red:#B42318;--redbg:#FBEAE8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,Arial,sans-serif;font-size:14px}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 20px 80px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.brand{font-size:22px;font-weight:700}.brand b{color:var(--blue)}
+.sub{font-size:12.5px;color:var(--mut);margin-top:3px}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.btn{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn.g{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.sync{font-size:11.5px;color:var(--mut);align-self:center}
+.warn{background:#FBEAE8;color:#B42318;border:1px solid #f3c1bb;border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;display:none}
+.prog{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:18px}
+.prog .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.prog .pct{font-size:22px;font-weight:700}.prog .pct small{font-size:12px;color:var(--mut);font-weight:500}
+.prog .leg{font-size:11px;color:var(--mut);display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+.track{height:9px;border-radius:100px;background:#e9edf2;overflow:hidden}.track i{display:block;height:100%;background:var(--green);border-radius:100px;transition:width .4s}
+.sec{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.sh{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;background:#fbfcfe}
+.sh h2{margin:0;font-size:15px;font-weight:700}.sh .c{font-size:11.5px;color:var(--mut)}
+.item{padding:12px 16px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:none}
+.item .head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.item .lab{font-weight:600;font-size:13.5px;flex:1;min-width:180px}
+.st{border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer}
+.note{width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:inherit;font-size:13px;color:var(--ink);resize:vertical;min-height:34px;line-height:1.45}
+.files{margin-top:8px;display:flex;flex-direction:column;gap:5px}
+.file{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-size:12.5px}
+.file a{color:var(--blue);font-weight:600;text-decoration:none;cursor:pointer}
+.file .rm{color:var(--red);cursor:pointer;font-weight:700;background:none;border:0}
+.attach{margin-top:7px}.attach label{display:inline-block;font-size:12px;color:var(--blue);font-weight:600;cursor:pointer;border:1px dashed var(--blue);border-radius:7px;padding:5px 10px}.attach input{display:none}
+.foot{font-size:11px;color:var(--mut);text-align:center;margin-top:20px}
+.ro-banner{display:none;background:var(--purplebg);color:var(--purple);border:1px solid var(--purple);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;margin-bottom:14px}
+body.ro .ro-banner{display:block}
+body.ro .st,body.ro .note{pointer-events:none;background:#fff;border-color:transparent;-webkit-appearance:none;appearance:none}
+body.ro .attach,body.ro .file .rm,body.ro .edit-only{display:none}
+@media print{body{background:#fff}.tools,.attach,.file .rm,.ro-banner,.warn{display:none!important}.sec,.prog{break-inside:avoid;border-color:#ccc}.note{background:#fff;border:none;padding:0}.st{border:none;padding:0}}
+</style></head><body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="brand"><b>Ingredientz</b> · Due Diligence Data Room</div>
+      <div class="sub">Synced to Supabase — edit from any device. Last change: <span id="upd">—</span></div>
+    </div>
+    <div class="tools">
+      <span class="sync" id="sync">connecting…</span>
+      <button class="btn" onclick="window.print()">🖨 Print / Save PDF</button>
+      <button class="btn g edit-only" onclick="shareCopy()">🔗 Export shareable copy</button>
+      <button class="btn g" onclick="toggleRO()" id="roBtn">👁 Read-only</button>
+    </div>
+  </div>
+  <div class="warn" id="warn"></div>
+  <div class="ro-banner">Read-only view — a shared snapshot of the data room. Editing is disabled.</div>
+  <div class="prog">
+    <div class="row"><div class="pct"><span id="pctn">0</span>% <small>ready · <span id="dn">0</span>/<span id="tt">0</span> items provided</small></div></div>
+    <div class="track"><i id="bar" style="width:0%"></i></div>
+    <div class="leg"><span>🟢 Provided</span><span>🟠 In progress / Partial</span><span>🔵 Pending</span><span>🟣 Planned</span><span>⚪ N/A</span></div>
+  </div>
+  <div id="list"></div>
+  <div class="foot">Ingredientz Inc · Confidential — for the intended recipient only.</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFIG — paste your Supabase anon key (the same SUPA_KEY the CRM's config.js uses).
+// It is a public client key, safe to embed. URL is already correct.
+// ═══════════════════════════════════════════════════════════════════════════
+var SUPABASE_URL="https://eytoryygkxjslfvsqanl.supabase.co";
+var SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dG9yeXlna3hqc2xmdnNxYW5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NDA5MTUsImV4cCI6MjA5MDMxNjkxNX0.txYTl0Q06mKSfWGmWc8cOTmCN46tLcxF9_7RhBUHBRY";
+var BUCKET="order-documents";
+
+var STATUSES=[
+  {v:"provided",l:"Provided",c:"var(--green)",bg:"var(--greenbg)",count:1},
+  {v:"partial", l:"Partial",  c:"var(--amber)",bg:"var(--amberbg)",count:.5},
+  {v:"progress",l:"In progress",c:"var(--amber)",bg:"var(--amberbg)",count:.5},
+  {v:"pending", l:"Pending",  c:"var(--blue)", bg:"#E7F0FD",count:0},
+  {v:"tba",     l:"TBA",      c:"var(--amber)",bg:"var(--amberbg)",count:0},
+  {v:"planned", l:"Planned",  c:"var(--purple)",bg:"var(--purplebg)",count:0},
+  {v:"na",      l:"N/A",      c:"var(--grey)", bg:"var(--greybg)",count:null}
+];
+function stMeta(v){return STATUSES.find(function(s){return s.v===v})||STATUSES[3];}
+
+var SECTIONS=[
+ {t:"1 · Corporate & Legal",items:[
+   ["coi","Certificate of Incorporation","pending",""],
+   ["pancgst","PAN, GST & CIN details","provided","CIN: U47912MH2025PTC438796\nPAN: AAPCP3793B\nGST: 23AAPCP3793B1ZC"],
+   ["moa_aoa","Memorandum & Articles of Association (MOA & AOA)","pending",""],
+   ["captable","Shareholding pattern / Cap Table","provided","CURRENT:\n- Jaideep — 98%\n- Deepak — 2%\n\nPROPOSED:\n- Jaideep — 85%\n- Karan — 10%\n- Naina — 3%\n- Deepak — 2%"],
+   ["esop","ESOP details","planned","Planned with the first round."],
+   ["board_res","Board resolutions","na","NA"],
+   ["sha","Existing shareholder agreements (SHA/SSA)","na","NA"],
+   ["convert","Convertible instruments (SAFE, CCD, CCPS, etc.)","na","NA"],
+   ["material","Material contracts & agreements","pending",""],
+   ["ip","IP documents (Trademark, Copyright, Patent)","na","NA"]
+ ]},
+ {t:"2 · Financial Information",items:[
+   ["audited","Audited financial statements (last 3 years)","partial","Last 1 year available."],
+   ["provisional","Latest provisional financials","provided","Done."],
+   ["mis","Monthly MIS","pending",""],
+   ["pl","Profit & Loss Statement","provided","Done."],
+   ["bs","Balance Sheet","provided","Done."],
+   ["cashflow","Cash Flow Statement","pending",""],
+   ["bankstmt","Bank statements (last 12 months)","tba","To be arranged."],
+   ["gstfil","GST filings","tba","To be arranged."],
+   ["itr","Income Tax returns","pending",""],
+   ["debt","Existing debt obligations","na","NA"]
+ ]},
+ {t:"3 · Business Performance",items:[
+   ["rev_breakup","Revenue breakup by customer and product","pending",""],
+   ["rev_trend","Monthly revenue trend","pending",""],
+   ["pipeline","Customer pipeline","pending",""],
+   ["funnel","Sales funnel","pending",""],
+   ["kpis","Key business KPIs","pending",""],
+   ["margins","Gross margins","pending",""],
+   ["unit_econ","Unit economics","pending",""],
+   ["concentration","Customer concentration analysis","pending",""],
+   ["repeat","Repeat customer metrics","pending",""]
+ ]},
+ {t:"4 · Product & Operations",items:[
+   ["profile","Company profile","pending",""],
+   ["catalogue","Product catalogue","pending",""],
+   ["roadmap","Product roadmap","pending",""],
+   ["supplychain","Supply chain overview","pending",""],
+   ["vendorlist","Vendor list","pending",""],
+   ["mfg","Manufacturing process (if applicable)","pending",""],
+   ["qualcert","Quality certifications","pending",""],
+   ["techarch","Technology architecture overview","pending",""],
+   ["demos","Product demos or videos","pending",""]
+ ]},
+ {t:"5 · Market & Strategy",items:[
+   ["deck","Pitch deck (latest version)","pending",""],
+   ["bizplan","Business plan","pending",""],
+   ["tam","Market sizing (TAM, SAM, SOM)","pending",""],
+   ["competitive","Competitive landscape","pending",""],
+   ["growth","Growth strategy","pending",""],
+   ["pricing","Pricing strategy","pending",""],
+   ["gtm","Go-to-market strategy","pending",""]
+ ]},
+ {t:"6 · Customers & Partnerships",items:[
+   ["custlist","Key customer list","pending",""],
+   ["ent_pipeline","Enterprise customer pipeline","pending",""],
+   ["partnerships","Strategic partnerships","pending",""],
+   ["testimonials","Customer testimonials","pending",""],
+   ["casestudies","Case studies","pending",""],
+   ["lois","LOIs, POs or major contracts","pending",""]
+ ]},
+ {t:"7 · Human Resources",items:[
+   ["orgchart","Organization chart","pending",""],
+   ["leaders","Leadership profiles","pending",""],
+   ["headcount","Employee count by function","pending",""],
+   ["emp_agmts","Key employment agreements","pending",""],
+   ["hiring","Hiring plan","pending",""]
+ ]},
+ {t:"8 · Fundraising",items:[
+   ["investors","Existing investor list","pending",""],
+   ["prev_raise","Previous fundraising history","pending",""],
+   ["cur_captable","Current cap table","pending",""],
+   ["funduse","Fund utilization plan","pending",""],
+   ["projections","Financial projections (3–5 years)","pending",""],
+   ["ask","Fundraising ask (amount, valuation, instrument, timeline)","pending",""]
+ ]},
+ {t:"9 · Compliance",items:[
+   ["statreg","Statutory registrations","pending",""],
+   ["licenses","Licenses and certifications","pending",""],
+   ["litigation","Pending litigation (if any)","na","NA"],
+   ["compfil","Compliance filings","pending",""]
+ ]}
+];
+
+var META={};SECTIONS.forEach(function(s,si){s.items.forEach(function(it,ii){META[it[0]]={section:s.t,label:it[1],sort:si*100+ii}})});
+var state={};SECTIONS.forEach(function(s){s.items.forEach(function(it){state[it[0]]={status:it[2],note:it[3],files:[]}})});
+
+var SHARED=window.__SHARED__||null;
+var RO=!!SHARED;
+var sb=null, ONLINE=false, noteTimers={};
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(m){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]})}
+function setSync(t){var e=document.getElementById('sync');if(e)e.textContent=t;}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+async function boot(){
+  if(SHARED){ // opened as a shared snapshot
+    if(SHARED.data)state=SHARED.data; render(); setSync("shared snapshot"); return;
+  }
+  if(SUPABASE_ANON_KEY==="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dG9yeXlna3hqc2xmdnNxYW5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NDA5MTUsImV4cCI6MjA5MDMxNjkxNX0.txYTl0Q06mKSfWGmWc8cOTmCN46tLcxF9_7RhBUHBRY"){
+    document.getElementById('warn').style.display='block';
+    document.getElementById('warn').innerHTML='<b>Setup needed:</b> open this file in a text editor and paste your Supabase anon key into <code>SUPABASE_ANON_KEY</code> (line ~90). It is the same public key the CRM uses in <code>config.js</code>. Until then it runs offline (changes won’t sync).';
+    render(); setSync("offline"); return;
+  }
+  try{
+    sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+    var res=await sb.from('dd_items').select('*');
+    if(res.error)throw res.error;
+    ONLINE=true;
+    var map={};(res.data||[]).forEach(function(r){map[r.id]=r});
+    var toSeed=[], last=0;
+    SECTIONS.forEach(function(s){s.items.forEach(function(it){
+      var id=it[0], m=META[id];
+      if(map[id]){state[id]={status:map[id].status||'pending',note:map[id].note||'',files:map[id].files||[]};
+        var t=new Date(map[id].updated_at||0).getTime();if(t>last)last=t;}
+      else{toSeed.push({id:id,section:m.section,label:m.label,status:it[2],note:it[3],files:[],sort:m.sort});}
+    })});
+    if(toSeed.length){await sb.from('dd_items').upsert(toSeed);}
+    setSync("✓ synced");
+    if(last)document.getElementById('upd').textContent=new Date(last).toLocaleString();
+  }catch(e){
+    ONLINE=false;setSync("offline — check key");
+    document.getElementById('warn').style.display='block';
+    document.getElementById('warn').textContent="Could not reach Supabase ("+(e.message||e)+"). Running offline — changes won't sync.";
+  }
+  render();
+}
+
+async function upsertItem(id){
+  if(!ONLINE)return;
+  var d=state[id], m=META[id];
+  setSync("saving…");
+  var {error}=await sb.from('dd_items').upsert({id:id,section:m.section,label:m.label,status:d.status,note:d.note,files:d.files,sort:m.sort,updated_at:new Date().toISOString()});
+  setSync(error?"save failed":"✓ synced");
+  if(!error)document.getElementById('upd').textContent=new Date().toLocaleString();
+}
+
+// ── Actions ─────────────────────────────────────────────────────────────────
+function setStatus(id,v){state[id].status=v;render();upsertItem(id);}
+function setNote(id,v){state[id].note=v;clearTimeout(noteTimers[id]);noteTimers[id]=setTimeout(function(){upsertItem(id)},600);}
+function slug(n){return String(n).toLowerCase().replace(/[^a-z0-9.]+/g,'-').replace(/^-|-$/g,'').slice(0,80);}
+async function addFile(id,file){
+  if(!file)return;
+  if(!ONLINE){alert("Not connected to Supabase — set the anon key first.");return;}
+  setSync("uploading…");
+  var path='duediligence/'+id+'/'+Date.now()+'-'+slug(file.name);
+  var {error}=await sb.storage.from(BUCKET).upload(path,file,{upsert:false});
+  if(error){setSync("upload failed");alert("Upload failed: "+error.message);return;}
+  state[id].files.push({path:path,name:file.name});await upsertItem(id);render();
+}
+async function dl(path,name){
+  if(SHARED&&SHARED.files&&SHARED.files[path]){var a=document.createElement('a');a.href=SHARED.files[path];a.download=name;a.click();return;}
+  var {data,error}=await sb.storage.from(BUCKET).createSignedUrl(path,3600);
+  if(error||!data){alert("Could not open file.");return;}
+  window.open(data.signedUrl,'_blank');
+}
+async function rmFile(id,path){
+  if(!confirm("Remove this file?"))return;
+  try{await sb.storage.from(BUCKET).remove([path]);}catch(e){}
+  state[id].files=state[id].files.filter(function(f){return f.path!==path});await upsertItem(id);render();
+}
+function toggleRO(){RO=!RO;render();}
+
+// ── Render ──────────────────────────────────────────────────────────────────
+function render(){
+  document.body.classList.toggle('ro',RO);
+  var rb=document.getElementById('roBtn');if(rb)rb.textContent=RO?"✏ Edit mode":"👁 Read-only";
+  var total=0,done=0;
+  SECTIONS.forEach(function(s){s.items.forEach(function(it){var st=stMeta(state[it[0]].status);if(st.count!==null){total++;done+=st.count;}})});
+  var pct=total?Math.round(done/total*100):0;
+  document.getElementById('pctn').textContent=pct;document.getElementById('bar').style.width=pct+'%';
+  document.getElementById('dn').textContent=Math.round(done);document.getElementById('tt').textContent=total;
+  var list=document.getElementById('list');list.innerHTML='';
+  SECTIONS.forEach(function(s){
+    var prov=s.items.filter(function(it){return state[it[0]].status==='provided'}).length;
+    var sec=document.createElement('div');sec.className='sec';
+    sec.innerHTML='<div class="sh"><h2>'+s.t+'</h2><span class="c">'+prov+'/'+s.items.length+' provided</span></div>';
+    s.items.forEach(function(it){
+      var id=it[0],d=state[id],st=stMeta(d.status);
+      var opts=STATUSES.map(function(o){return '<option value="'+o.v+'"'+(o.v===d.status?' selected':'')+'>'+o.l+'</option>'}).join('');
+      var filesHtml=(d.files||[]).map(function(f){return '<div class="file"><span>📄 '+esc(f.name)+'</span><span><a onclick="dl(\''+esc(f.path)+'\',\''+esc(f.name)+'\')">Download</a> <button class="rm" onclick="rmFile(\''+id+'\',\''+esc(f.path)+'\')">✕</button></span></div>'}).join('');
+      var w=document.createElement('div');w.className='item';
+      w.innerHTML='<div class="head"><div class="lab">'+esc(it[1])+'</div>'+
+        '<select class="st" style="color:'+st.c+';background:'+st.bg+'" onchange="setStatus(\''+id+'\',this.value)">'+opts+'</select></div>'+
+        '<textarea class="note" placeholder="Notes / details…" oninput="setNote(\''+id+'\',this.value)">'+esc(d.note||'')+'</textarea>'+
+        '<div class="files">'+filesHtml+'</div>'+
+        '<div class="attach"><label>+ Attach file<input type="file" onchange="addFile(\''+id+'\',this.files[0]);this.value=\'\'"></label></div>';
+      sec.appendChild(w);
+    });
+    list.appendChild(sec);
+  });
+}
+
+// ── Shareable read-only snapshot (data + files embedded as base64) ──────────
+async function shareCopy(){
+  if(!ONLINE){alert("Connect to Supabase first (set the anon key).");return;}
+  setSync("building snapshot…");
+  var files={},jobs=[];
+  SECTIONS.forEach(function(s){s.items.forEach(function(it){(state[it[0]].files||[]).forEach(function(f){jobs.push(f)})})});
+  for(var i=0;i<jobs.length;i++){
+    try{
+      var r=await sb.storage.from(BUCKET).createSignedUrl(jobs[i].path,600);
+      if(r.data){var resp=await fetch(r.data.signedUrl);var blob=await resp.blob();
+        var dataURL=await new Promise(function(res){var fr=new FileReader();fr.onload=function(){res(fr.result)};fr.readAsDataURL(blob)});
+        files[jobs[i].path]=dataURL;}
+    }catch(e){}
+  }
+  var payload={data:JSON.parse(JSON.stringify(state)),files:files};
+  var html=document.documentElement.outerHTML;
+  var inject='<script>window.__SHARED__='+JSON.stringify(payload).replace(/<\/script>/g,'<\\/script>')+';<\/script>';
+  html=html.replace('</head>',inject+'</head>');
+  var blob=new Blob(['<!DOCTYPE html>\n'+html],{type:"text/html"});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download="ingredientz-dd-dataroom-SHARED.html";a.click();
+  setSync("✓ synced");
+}
+
+boot();
+</script>
+</body></html>
