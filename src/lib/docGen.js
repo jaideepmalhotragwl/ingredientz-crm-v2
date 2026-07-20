@@ -153,6 +153,17 @@ export function buildSupplierPOHtml({ order, po, poItems, supplier, entity }) {
     </table>
     ${po?.payment_terms ? `<p><strong>Payment terms:</strong> ${esc(po.payment_terms)}</p>` : ""}
     ${po?.incoterms ? `<p><strong>Incoterms:</strong> ${esc(po.incoterms)}</p>` : ""}
+    ${supplier && (supplier.bank_name || supplier.bank_account_number || supplier.bank_iban || supplier.bank_swift) ? `
+    <h2 class="section">Remit to (supplier bank)</h2>
+    <p style="font-size:8.5pt;color:#555;line-height:1.5">${[
+      supplier.bank_name && ("Bank: " + esc(supplier.bank_name)),
+      supplier.bank_account_name && ("A/C name: " + esc(supplier.bank_account_name)),
+      supplier.bank_account_number && ("A/C: " + esc(supplier.bank_account_number)),
+      supplier.bank_iban && ("IBAN: " + esc(supplier.bank_iban)),
+      supplier.bank_swift && ("SWIFT: " + esc(supplier.bank_swift)),
+      supplier.bank_ifsc && ("IFSC: " + esc(supplier.bank_ifsc)),
+      supplier.bank_address && ("Bank address: " + esc(supplier.bank_address))
+    ].filter(Boolean).join(" · ")}</p>` : ""}
     ${termsBlock("Purchase Order — Terms & Conditions", SUPPLIER_TERMS)}
   `;
 }
