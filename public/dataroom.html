@@ -190,7 +190,7 @@ async function boot(){
   if(SHARED){ // opened as a shared snapshot
     if(SHARED.data)state=SHARED.data; render(); setSync("shared snapshot"); return;
   }
-  if(SUPABASE_ANON_KEY==="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5dG9yeXlna3hqc2xmdnNxYW5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NDA5MTUsImV4cCI6MjA5MDMxNjkxNX0.txYTl0Q06mKSfWGmWc8cOTmCN46tLcxF9_7RhBUHBRY"){
+  if(!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.indexOf("eyJ")!==0){
     document.getElementById('warn').style.display='block';
     document.getElementById('warn').innerHTML='<b>Setup needed:</b> open this file in a text editor and paste your Supabase anon key into <code>SUPABASE_ANON_KEY</code> (line ~90). It is the same public key the CRM uses in <code>config.js</code>. Until then it runs offline (changes won’t sync).';
     render(); setSync("offline"); return;
