@@ -4,53 +4,48 @@ import { C } from "../constants.js";
 import { Btn } from "./ui/Btn.jsx";
 import { Card } from "./ui/Card.jsx";
 import { Modal } from "./ui/Modal.jsx";
-
+import { SupplierDrawer } from "./SupplierDrawer.jsx";
+import { fmtName } from "../lib/nameFormat.js";
 // ── SUPPLIERS TAB ────────────────────────────────────────────────────────────
 function SuppliersTab() {
   const [suppliers,setSuppliers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(null);
+  const [selected,setSelected]=useState(null);   // open supplier drawer
   const [search,setSearch]=useState("");
   const [form,setForm]=useState({company:"",contact_name:"",contact_email:"",country:"",status:"active"});
   const [saving,setSaving]=useState(false);
   const [done,setDone]=useState(false);
-
   useEffect(()=>{load();},[]);
-
   async function load(){
     setLoading(true);
-    const {data}=await supabase.from("suppliers").select("*").order("created_at",{ascending:false});
+    const {data}=await supabase.from("suppliers").select("*").order("company",{ascending:true});
     setSuppliers(data||[]);setLoading(false);
+    // keep the open drawer in sync after edits
+    if(selected){ const fresh=(data||[]).find(s=>s.id===selected.id); if(fresh) setSelected(fresh); }
   }
-
   function setF(k,v){setForm(f=>({...f,[k]:v}));}
-
   function openAdd(){setForm({company:"",contact_name:"",contact_email:"",country:"",status:"active"});setModal("add");}
-  function openEdit(s){setForm({company:s.company,contact_name:s.contact_name||"",contact_email:s.contact_email||"",country:s.country||"",status:s.status||"active"});setModal({type:"edit",id:s.id});}
-
   async function save(){
     if(!form.company.trim()){alert("Company name required.");return;}
     if(!form.contact_email.trim()){alert("Email required.");return;}
     setSaving(true);
     const slug=form.company.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
-    if(modal==="add"){await supabase.from("suppliers").insert({...form,slug});}
-    else{await supabase.from("suppliers").update(form).eq("id",modal.id);}
+    await supabase.from("suppliers").insert({...form,slug});
     setSaving(false);setDone(true);
     setTimeout(()=>{setDone(false);setModal(null);load();},900);
   }
-
   async function del(id){
     if(!window.confirm("Delete this supplier?"))return;
     await supabase.from("suppliers").delete().eq("id",id);
     setSuppliers(p=>p.filter(s=>s.id!==id));
   }
-
   const STATUS_COLORS={active:C.green,inactive:C.muted,pending:C.amber};
   const inp={background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 11px",color:C.ink,fontFamily:"Arial,sans-serif",fontSize:13,outline:"none",width:"100%"};
   const filtered=suppliers.filter(s=>!search||[s.company,s.country,s.contact_name,s.contact_email].join(" ").toLowerCase().includes(search.toLowerCase()));
-
   return <div>
-    {modal&&<Modal title={modal==="add"?"Add Supplier":"Edit Supplier"} onClose={()=>setModal(null)} width={540}>
+    {selected&&<SupplierDrawer supplier={selected} onClose={()=>setSelected(null)} onSaved={load}/>}
+    {modal&&<Modal title="Add Supplier" onClose={()=>setModal(null)} width={540}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <div style={{display:"flex",flexDirection:"column",gap:4,gridColumn:"span 2"}}>
@@ -78,8 +73,9 @@ function SuppliersTab() {
             </select>
           </div>
         </div>
+        <div style={{fontSize:11,color:C.muted}}>Add the basics here — open the supplier to fill address, certificates, products, and bank details.</div>
         <div style={{display:"flex",gap:10,paddingTop:6}}>
-          <Btn label={saving?"Saving…":done?"✓ Saved!":modal==="add"?"Add Supplier":"Update Supplier"} onClick={save} disabled={saving}/>
+          <Btn label={saving?"Saving…":done?"✓ Saved!":"Add Supplier"} onClick={save} disabled={saving}/>
           <Btn label="Cancel" onClick={()=>setModal(null)} variant="ghost"/>
         </div>
       </div>
@@ -94,20 +90,22 @@ function SuppliersTab() {
       <div style={{overflowX:"auto",maxHeight:520,overflowY:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead style={{position:"sticky",top:0,background:C.bg,zIndex:2}}>
-            <tr>{["Company","Country","Contact","Email","Status","Products",""].map(h=><th key={h} style={{padding:"9px 14px",textAlign:"left",color:C.muted,borderBottom:`1px solid ${C.border}`,fontWeight:700,letterSpacing:1,fontSize:9,textTransform:"uppercase"}}>{h}</th>)}</tr>
+            <tr>{["Company","Country","Contact","Email","Status",""].map(h=><th key={h} style={{padding:"9px 14px",textAlign:"left",color:C.muted,borderBottom:`1px solid ${C.border}`,fontWeight:700,letterSpacing:1,fontSize:9,textTransform:"uppercase"}}>{h}</th>)}</tr>
           </thead>
           <tbody>
-            {filtered.map((s,i)=><tr key={s.id} style={{background:i%2===0?C.bg:"transparent"}}>
-              <td style={{padding:"10px 14px",color:C.ink,fontWeight:600}}>{s.company}</td>
+            {filtered.map((s,i)=><tr key={s.id} onClick={()=>setSelected(s)}
+                style={{background:i%2===0?C.bg:"transparent",cursor:"pointer"}}
+                onMouseEnter={e=>e.currentTarget.style.background=C.blueLt||"#EAF2FF"}
+                onMouseLeave={e=>e.currentTarget.style.background=i%2===0?C.bg:"transparent"}>
+              <td style={{padding:"10px 14px",color:C.ink,fontWeight:600}}>{fmtName(s.company)}</td>
               <td style={{padding:"10px 14px",color:C.muted}}>{s.country||"—"}</td>
               <td style={{padding:"10px 14px",color:C.muted}}>{s.contact_name||"—"}</td>
               <td style={{padding:"10px 14px",color:C.muted}}>{s.contact_email||"—"}</td>
               <td style={{padding:"10px 14px"}}>
                 <span style={{background:`${STATUS_COLORS[s.status]||C.muted}22`,color:STATUS_COLORS[s.status]||C.muted,border:`1px solid ${STATUS_COLORS[s.status]||C.muted}44`,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700,textTransform:"capitalize"}}>{s.status}</span>
               </td>
-              <td style={{padding:"10px 14px",color:C.muted,fontSize:11}}>—</td>
-              <td style={{padding:"10px 14px",display:"flex",gap:6}}>
-                <Btn label="Edit" onClick={()=>openEdit(s)} size="sm" variant="ghost"/>
+              <td style={{padding:"10px 14px",display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+                <Btn label="Open" onClick={()=>setSelected(s)} size="sm" variant="ghost"/>
                 <Btn label="✕" onClick={()=>del(s.id)} size="sm" variant="danger"/>
               </td>
             </tr>)}
@@ -118,6 +116,4 @@ function SuppliersTab() {
     </Card>
   </div>;
 }
-
-
 export { SuppliersTab };
