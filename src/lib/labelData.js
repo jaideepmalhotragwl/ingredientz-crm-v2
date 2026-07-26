@@ -49,3 +49,27 @@ export async function saveBatch(payload) {
   if (error) throw error;
   return data;
 }
+
+// Read the supplier scan with Claude vision and return the six label fields.
+// Uses the dedicated `extract-batch-label` edge function (separate from the
+// website's `extract-label` Supplement-Facts reader).
+export async function extractLabelBatch(file) {
+  if (!file) throw new Error("no scan to read");
+  const file_base64 = await fileToBase64(file);
+  const { data, error } = await supabase.functions.invoke("extract-batch-label", {
+    body: { file_base64, media_type: file.type || "image/jpeg" },
+  });
+  if (error) throw new Error(error.message || "vision call failed");
+  if (!data?.ok) throw new Error(data?.error || "could not read the label");
+  return data.fields || {};
+}
+
+// Read a File as raw base64 (strips the "data:...;base64," prefix).
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = () => reject(new Error("could not read file"));
+    r.readAsDataURL(file);
+  });
+}
