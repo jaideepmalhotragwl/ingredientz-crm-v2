@@ -7,7 +7,7 @@ import { EnquiryForm } from "./EnquiryForm.jsx";
 import { QuotationTab } from "./QuotationTab.jsx";
 import { EmailThreadTab } from "./EmailThreadTab.jsx";
 import { RFQForwardPanel } from "./RFQForwardPanel.jsx";
-
+import { RemarksTab } from "./RemarksTab.jsx";
 // Stages that REQUIRE a reason before an enquiry can be closed there.
 const REASON_STAGES = ["Lost", "No Response", "Out of Scope"];
 const CLOSE_REASONS = [
@@ -19,19 +19,16 @@ const CLOSE_REASONS = [
   "Out of scope / can't supply",
   "Other",
 ];
-
 // ── ENQUIRY DRAWER ────────────────────────────────────────────────────────────
 function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quotations,threads,onSaveQuotation,onSendQuotationEmail,onLogEmail,onThreadInserted}) {
   const [drawerTab,setDrawerTab]=useState("details");
   const [editing,setEditing]=useState(false);
   const [pendingStage,setPendingStage]=useState(null);   // stage awaiting a close reason
-
   if(!enq)return null;
   const dClose=daysUntil(enq.expected_closure);
   const dRemind=daysUntil(enq.reminder_date);
   const products=Array.isArray(enq.products)?enq.products:[];
-  const DTABS=[{id:"details",label:"Details"},{id:"quotation",label:"Quotation"},{id:"thread",label:"Email Thread"},{id:"rfq",label:"Forward RFQ"}];
-
+  const DTABS=[{id:"details",label:"Details"},{id:"quotation",label:"Quotation"},{id:"remarks",label:"Remarks"},{id:"thread",label:"Email Thread"},{id:"rfq",label:"Forward RFQ"}];
   // Intercept stage clicks: closing stages must collect a reason first.
   function handleStage(stage){
     if(REASON_STAGES.includes(stage)){ setPendingStage(stage); return; }
@@ -43,7 +40,6 @@ function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quota
     await onStageChange(enq.id,pendingStage);
     setPendingStage(null);
   }
-
   return <div style={{position:"fixed",top:0,right:0,bottom:0,width:520,background:C.white,boxShadow:"-4px 0 20px rgba(0,0,0,0.15)",zIndex:200,overflowY:"auto",borderLeft:`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
     {pendingStage && <CloseReasonModal stage={pendingStage} onCancel={()=>setPendingStage(null)} onConfirm={confirmClose}/>}
     <div style={{padding:"20px 22px 0",flexShrink:0}}>
@@ -79,16 +75,14 @@ function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quota
                 <span style={{color:C.muted}}>Value: </span><span style={{color:C.blue,fontWeight:700}}>{enq.currency} {Number(enq.expected_value).toLocaleString()}</span>
               </div>}
             </div>
-
             {/* Show the close reason if this enquiry was closed */}
             {enq.close_reason && <div style={{background:"#FFF6F6",borderRadius:11,padding:12,border:`1px solid #FFDAD9`,marginBottom:12}}>
               <div style={{fontSize:9,color:C.red,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Close reason</div>
               <div style={{fontSize:12,color:C.ink,fontWeight:600}}>{enq.close_reason}</div>
               {enq.close_reason_note&&<div style={{fontSize:12,color:C.muted,marginTop:3,lineHeight:1.5}}>{enq.close_reason_note}</div>}
             </div>}
-
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12}}>
-              {[["Date Received",fmtDate(enq.enquiry_date)],["Assigned To",enq.assigned_to],["Source",enq.source],["Closure",fmtDate(enq.expected_closure)],["Reminder",fmtDate(enq.reminder_date)],["Quotation",enq.quotation_sent?"Yes":"No"],["Created By",enq.created_by]].map(([k,v])=>(
+              {[["Reason",enq.enquiry_reason],["Date Received",fmtDate(enq.enquiry_date)],["Assigned To",enq.assigned_to],["Source",enq.source],["Closure",fmtDate(enq.expected_closure)],["Reminder",fmtDate(enq.reminder_date)],["Quotation",enq.quotation_sent?"Yes":"No"],["Created By",enq.created_by]].map(([k,v])=>(
                 <div key={k} style={{background:C.bg,borderRadius:9,padding:"9px 12px",border:`1px solid ${C.border}`}}>
                   <div style={{fontSize:9,color:C.muted,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>{k}</div>
                   <div style={{fontSize:12,color:C.ink}}>{v||"—"}</div>
@@ -108,14 +102,15 @@ function EnquiryDrawer({enq,onClose,onStageChange,onUpdate,customers,users,quota
           </div>
           :drawerTab==="quotation"
             ?<QuotationTab enq={enq} quotations={quotations} onSave={onSaveQuotation} onSendEmail={onSendQuotationEmail} users={users}/>
-            :drawerTab==="rfq"
-              ?<RFQForwardPanel enq={enq} users={users} onThreadInserted={onThreadInserted}/>
-              :<EmailThreadTab enq={enq} threads={threads} onLogEmail={onLogEmail}/>
+            :drawerTab==="remarks"
+              ?<RemarksTab enq={enq} users={users}/>
+              :drawerTab==="rfq"
+                ?<RFQForwardPanel enq={enq} users={users} onThreadInserted={onThreadInserted}/>
+                :<EmailThreadTab enq={enq} threads={threads} onLogEmail={onLogEmail}/>
       }
     </div>
   </div>;
 }
-
 // ── CLOSE REASON MODAL ────────────────────────────────────────────────────────
 function CloseReasonModal({stage,onCancel,onConfirm}) {
   const [reason,setReason]=useState("");
@@ -123,14 +118,12 @@ function CloseReasonModal({stage,onCancel,onConfirm}) {
   const [saving,setSaving]=useState(false);
   const needsNote = reason === "Other";
   const canSave = reason && (!needsNote || note.trim());
-
   async function save(){
     if(!canSave)return;
     setSaving(true);
     try{ await onConfirm(reason, note.trim()); }
     catch(e){ setSaving(false); }
   }
-
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{background:C.white,borderRadius:14,width:440,maxWidth:"100%",boxShadow:"0 12px 40px rgba(0,0,0,0.25)",overflow:"hidden"}}>
       <div style={{padding:"18px 22px",borderBottom:`1px solid ${C.border}`}}>
@@ -161,5 +154,4 @@ function CloseReasonModal({stage,onCancel,onConfirm}) {
     </div>
   </div>;
 }
-
 export { EnquiryDrawer };

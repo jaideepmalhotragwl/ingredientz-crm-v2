@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { supabase } from "../config.js";
 import { C, STAGES, STAGE_COLORS, PRIO_COLORS } from "../constants.js";
 import { daysUntil, fmtDate } from "../utils.js";
 import { Btn } from "./ui/Btn.jsx";
@@ -6,14 +7,24 @@ import { Card } from "./ui/Card.jsx";
 import { Modal } from "./ui/Modal.jsx";
 import { StageBadge, PrioBadge } from "./ui/Badges.jsx";
 import { EnquiryForm } from "./EnquiryForm.jsx";
-
+// Closing stages that REQUIRE a reason before an enquiry can be marked there.
+// (Kept in sync with EnquiryDrawer.jsx so every path enforces the same rule.)
+const REASON_STAGES = ["Lost", "No Response", "Out of Scope"];
+const CLOSE_REASONS = [
+  "Price couldn't be met",
+  "Costing-only / budgetary project",
+  "Project on hold",
+  "Went with a competitor",
+  "No response from customer",
+  "Out of scope / can't supply",
+  "Other",
+];
 // ── FX → USD-equivalent (keep in sync with OrdersTab). Update as rates move. ──
 const FX = { USD: 1, EUR: 1.08, INR: 0.0117, "$": 1, "€": 1.08, "₹": 0.0117 };
 function toUSD(amount, currency) {
   const r = FX[(currency || "USD").toString().toUpperCase()] ?? FX[currency] ?? 1;
   return (parseFloat(amount) || 0) * r;
 }
-
 // Deal-size bands (measured in USD). Order matters: first match wins.
 const VALUE_BANDS = [
   { min: 1000000, color: "#1E7A46", bg: "#E6F4EC", label: "≥ $1M" },      // deep green — top priority
@@ -25,14 +36,12 @@ const VALUE_BANDS = [
 function bandFor(usd) {
   return VALUE_BANDS.find(b => usd >= b.min) || VALUE_BANDS[VALUE_BANDS.length - 1];
 }
-
 // Colour the FY-quarter tag by quarter, so Q1–Q4 are visually distinct in the list.
 const QUARTER_COLORS = { "1": "#1E7A46", "2": "#1877F2", "3": "#F5A623", "4": "#9B59B6" };
 function quarterColor(ref) {
   const m = /Q(\d)/.exec(ref || "");
   return (m && QUARTER_COLORS[m[1]]) || "#65676B";
 }
-
 // ── ENQUIRIES TAB ─────────────────────────────────────────────────────────────
 function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageChange,onDelete,onAdd}) {
   const [showForm,setShowForm]=useState(false);
@@ -41,7 +50,20 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
   const [filterAssignee,setFilterAssignee]=useState("");
   const [filterBand,setFilterBand]=useState("");   // "" = all deal sizes
   const [sort,setSort]=useState({k:"created_at",d:-1});
-
+  const [pendingLost,setPendingLost]=useState(null);   // {id, stage} awaiting a required reason
+  // Apply a stage change, but force a reason first for closing stages.
+  function requestStage(id,stage){
+    if(REASON_STAGES.includes(stage)){ setPendingLost({id,stage}); return; }
+    onStageChange(id,stage);
+  }
+  async function confirmLost(reason,note){
+    if(!pendingLost) return;
+    await supabase.from("enquiries").update({
+      close_reason:reason, close_reason_note:note||null, closed_at:new Date().toISOString(),
+    }).eq("id",pendingLost.id);
+    await onStageChange(pendingLost.id,pendingLost.stage);
+    setPendingLost(null);
+  }
   // Latest quotation total per enquiry_id (fallback when no manual value is set)
   const latestQuoteByEnq = useMemo(() => {
     const m = {};
@@ -54,7 +76,6 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
     });
     return m;
   }, [quotations]);
-
   // Resolve the value to show for an enquiry: manual first, else latest quotation.
   function resolveValue(e) {
     if (e.expected_value != null && e.expected_value !== "" && Number(e.expected_value) > 0) {
@@ -64,7 +85,6 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
     if (q && q.amt > 0) return { amount: q.amt, currency: q.cur || e.currency || "USD", source: "quote" };
     return null;
   }
-
   const filtered=enquiries
     .filter(e=>(!filterStage||e.stage===filterStage)&&(!filterAssignee||e.assigned_to===filterAssignee))
     .filter(e=>{
@@ -84,14 +104,13 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
       const va=a[sort.k]??"",vb=b[sort.k]??"";
       return typeof va==="number"?(va-vb)*sort.d:String(va).localeCompare(String(vb))*sort.d;
     });
-
   function toggleSort(k){setSort(s=>s.k===k?{k,d:s.d*-1}:{k,d:-1});}
   const selStyle={background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",color:C.ink,fontSize:11};
-
   return <div>
     {showForm&&<Modal title="New Enquiry" sub="Saves to Supabase · Unlimited products" onClose={()=>setShowForm(false)} width={880}>
       <EnquiryForm onSave={async(row)=>{await onAdd(row);setShowForm(false);}} onClose={()=>setShowForm(false)} customers={customers} users={users}/>
     </Modal>}
+    {pendingLost && <CloseReasonModal stage={pendingLost.stage} onCancel={()=>setPendingLost(null)} onConfirm={confirmLost}/>}
     <Card style={{overflow:"hidden"}}>
       <div style={{padding:"14px 18px",display:"flex",gap:10,alignItems:"center",borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
         <div style={{fontSize:18,fontWeight:700,color:C.ink}}>Enquiries <span style={{fontSize:12,color:C.blue,fontWeight:400}}>{filtered.length} records</span></div>
@@ -145,7 +164,7 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
                 <td style={{padding:"9px 13px",color:C.muted}}>{(e.assigned_to||"").split(" ")[0]||"—"}</td>
                 <td style={{padding:"9px 13px"}}><PrioBadge priority={e.priority}/></td>
                 <td style={{padding:"9px 13px"}} onClick={ev=>ev.stopPropagation()}>
-                  <select value={e.stage} onChange={ev=>onStageChange(e.id,ev.target.value)} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,color:STAGE_COLORS[STAGES.indexOf(e.stage)]||C.muted,padding:0}}>
+                  <select value={e.stage} onChange={ev=>requestStage(e.id,ev.target.value)} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,color:STAGE_COLORS[STAGES.indexOf(e.stage)]||C.muted,padding:0}}>
                     {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
@@ -172,6 +191,47 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
     </Card>
   </div>;
 }
-
-
+// ── CLOSE REASON MODAL (same rule as the drawer — reason is compulsory) ────────
+function CloseReasonModal({stage,onCancel,onConfirm}) {
+  const [reason,setReason]=useState("");
+  const [note,setNote]=useState("");
+  const [saving,setSaving]=useState(false);
+  const needsNote = reason === "Other";
+  const canSave = reason && (!needsNote || note.trim());
+  async function save(){
+    if(!canSave)return;
+    setSaving(true);
+    try{ await onConfirm(reason, note.trim()); }
+    catch(e){ setSaving(false); }
+  }
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{background:C.white,borderRadius:14,width:440,maxWidth:"100%",boxShadow:"0 12px 40px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+      <div style={{padding:"18px 22px",borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:16,fontWeight:700,color:C.ink}}>Mark as “{stage}”</div>
+        <div style={{fontSize:12,color:C.muted,marginTop:3}}>Please record why — this helps us learn why deals don’t close.</div>
+      </div>
+      <div style={{padding:"18px 22px",display:"flex",flexDirection:"column",gap:8}}>
+        {CLOSE_REASONS.map(r=>(
+          <button key={r} onClick={()=>setReason(r)} style={{
+            textAlign:"left",background:reason===r?C.blueLt:"transparent",
+            border:`1px solid ${reason===r?C.blue:C.border}`,borderRadius:9,padding:"10px 13px",
+            cursor:"pointer",fontSize:13,color:reason===r?C.blue:C.ink,fontWeight:reason===r?600:400,
+            display:"flex",alignItems:"center",gap:9
+          }}>
+            <span style={{width:15,height:15,borderRadius:"50%",border:`2px solid ${reason===r?C.blue:C.faded}`,background:reason===r?C.blue:"transparent",flexShrink:0}}/>
+            {r}
+          </button>
+        ))}
+        {needsNote && <textarea value={note} onChange={e=>setNote(e.target.value)} autoFocus placeholder="Tell us the specific reason…" rows={3}
+          style={{marginTop:2,background:C.bg,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 12px",fontFamily:"inherit",fontSize:13,color:C.ink,outline:"none",resize:"vertical"}}/>}
+      </div>
+      <div style={{padding:"14px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end",gap:9}}>
+        <button onClick={onCancel} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:9,padding:"8px 16px",cursor:"pointer",fontSize:13,color:C.muted,fontWeight:600}}>Cancel</button>
+        <button onClick={save} disabled={!canSave||saving} style={{background:canSave?C.red:C.faded,border:0,borderRadius:9,padding:"8px 18px",cursor:canSave?"pointer":"not-allowed",fontSize:13,color:"white",fontWeight:700}}>
+          {saving?"Saving…":`Confirm ${stage}`}
+        </button>
+      </div>
+    </div>
+  </div>;
+}
 export { EnquiriesTab };
