@@ -1,7 +1,7 @@
 // src/components/LabelStudio.jsx
 import { useEffect, useRef, useState } from "react";
 import { LOGO } from "../templates.js";
-import { listSuppliers, listBatches, uploadScan, saveBatch } from "../lib/labelData.js";
+import { listSuppliers, listBatches, uploadScan, saveBatch, extractLabelBatch } from "../lib/labelData.js";
 import "./labelStudio.css";
 
 const DEFAULT_ADDRESS =
@@ -33,6 +33,7 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
   const [scanPreview, setScanPreview] = useState(null);
   const [recent, setRecent] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [status, setStatus] = useState(null); // {kind:'ok'|'err', msg}
   const [drag, setDrag] = useState(false);
   const fileInput = useRef(null);
@@ -58,6 +59,33 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
     const r = new FileReader();
     r.onload = () => setScanPreview(r.result);
     r.readAsDataURL(file);
+  }
+
+  // Read the scan with Claude vision and drop the fields into the form.
+  // Only overwrites a field when the scan actually returned a value.
+  async function autofill() {
+    if (!scanFile) { setStatus({ kind: "err", msg: "Upload a scan first, then Auto-fill." }); return; }
+    setExtracting(true);
+    setStatus(null);
+    try {
+      const f = await extractLabelBatch(scanFile);
+      setForm((prev) => ({
+        ...prev,
+        product_name:      f.product_name      ?? prev.product_name,
+        botanical_cas:     f.botanical_cas      ?? prev.botanical_cas,
+        activity:          f.activity           ?? prev.activity,
+        quantity:          f.quantity           ?? prev.quantity,
+        batch_no:          f.batch_no           ?? prev.batch_no,
+        mfg_label:         f.mfg_label          ?? prev.mfg_label,
+        exp_label:         f.exp_label          ?? prev.exp_label,
+        country_of_origin: f.country_of_origin  ?? prev.country_of_origin,
+      }));
+      setStatus({ kind: "ok", msg: "Filled from scan — check each field, then Save & Print." });
+    } catch (err) {
+      setStatus({ kind: "err", msg: `Auto-fill failed: ${err.message}` });
+    } finally {
+      setExtracting(false);
+    }
   }
 
   function loadForReprint(b) {
@@ -204,12 +232,23 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
                   <div>
                     <div className="plus">+</div>
                     <p><strong>Drop the supplier's label scan here</strong><br />
-                      or click to browse — keep it beside your label while you transcribe</p>
+                      or click to browse — then Auto-fill reads it for you</p>
                   </div>
                 </div>
               )}
               <input ref={fileInput} type="file" accept="image/*" hidden
                      onChange={(e) => handleScan(e.target.files[0])} />
+
+              {scanFile && (
+                <button className="ls-btn accent ls-autofill" onClick={autofill} disabled={extracting}>
+                  {extracting ? "Reading label…" : "✨ Auto-fill from scan"}
+                </button>
+              )}
+              {scanPreview && (
+                <button className="ls-btn ghost ls-autofill" onClick={() => fileInput.current?.click()}>
+                  Replace scan
+                </button>
+              )}
               <p className="cap">Supplier reference</p>
             </div>
 
