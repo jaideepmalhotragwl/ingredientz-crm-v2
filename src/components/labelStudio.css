@@ -1,4 +1,5 @@
-/* src/features/labels/labelStudio.css */
+/* src/components/labelStudio.css */
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 .ls-root{
   --ink:#0E1418; --ink-soft:#556069; --rule:#D3DAE0;

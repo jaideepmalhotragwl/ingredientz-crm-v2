@@ -1,29 +1,33 @@
 // src/components/LabelStudio.jsx
-import { useEffect, useRef, useState } from 'react';
-import { INGREDIENTZ_LOGO } from '../lib/ingredientzLogo';
-import { listSuppliers, listBatches, uploadScan, saveBatch } from '../lib/labelData';
-import './labelStudio.css';
+import { useEffect, useRef, useState } from "react";
+import { LOGO } from "../templates.js";
+import { listSuppliers, listBatches, uploadScan, saveBatch } from "../lib/labelData.js";
+import "./labelStudio.css";
 
 const DEFAULT_ADDRESS =
-  'Registered Office: 8 The Green, Ste A,\nDover, DE 19901, USA\n+1 270 721 5321 · www.ingredientz.co';
+  "Registered Office: 8 The Green, Ste A,\nDover, DE 19901, USA\n+1 270 721 5321 · www.ingredientz.co";
 
 const EMPTY = {
-  product_name: '',
-  botanical_cas: '',
-  activity: '',
-  quantity: '',
-  batch_no: '',
-  mfg_label: '',
-  exp_label: '',
-  country_of_origin: '',
-  responsibility_line: 'Packed & Marketed by',
-  company_line: 'Ingredientz Inc.',
+  product_name: "",
+  botanical_cas: "",
+  activity: "",
+  quantity: "",
+  batch_no: "",
+  mfg_label: "",
+  exp_label: "",
+  country_of_origin: "",
+  responsibility_line: "Packed & Marketed by",
+  company_line: "Ingredientz Inc.",
   address_block: DEFAULT_ADDRESS,
 };
 
-export default function LabelStudio() {
-  const [suppliers, setSuppliers] = useState([]);
-  const [supplierId, setSupplierId] = useState('');
+// App passes its already-loaded `suppliers` list in. If it isn't provided
+// (e.g. used standalone), the component fetches them itself.
+export function LabelStudio({ suppliers: suppliersProp = null }) {
+  const [suppliersState, setSuppliersState] = useState([]);
+  const suppliers = suppliersProp || suppliersState;
+
+  const [supplierId, setSupplierId] = useState("");
   const [form, setForm] = useState(EMPTY);
   const [scanFile, setScanFile] = useState(null);
   const [scanPreview, setScanPreview] = useState(null);
@@ -34,8 +38,9 @@ export default function LabelStudio() {
   const fileInput = useRef(null);
 
   useEffect(() => {
-    listSuppliers().then(setSuppliers);
+    if (!suppliersProp) listSuppliers().then(setSuppliersState);
     refreshRecent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function refreshRecent() {
@@ -44,8 +49,8 @@ export default function LabelStudio() {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const supplierName =
-    suppliers.find((s) => String(s.id) === String(supplierId))?.name || '';
+  const nameOf = (s) => s?.company || s?.name || "";
+  const supplierName = nameOf(suppliers.find((s) => String(s.id) === String(supplierId)));
 
   function handleScan(file) {
     if (!file) return;
@@ -57,35 +62,35 @@ export default function LabelStudio() {
 
   function loadForReprint(b) {
     setForm({
-      product_name: b.product_name || '',
-      botanical_cas: b.botanical_cas || '',
-      activity: b.activity || '',
-      quantity: b.quantity || '',
-      batch_no: b.batch_no || '',
-      mfg_label: b.mfg_label || '',
-      exp_label: b.exp_label || '',
-      country_of_origin: b.country_of_origin || '',
-      responsibility_line: b.responsibility_line || 'Packed & Marketed by',
-      company_line: b.company_line || 'Ingredientz Inc.',
+      product_name: b.product_name || "",
+      botanical_cas: b.botanical_cas || "",
+      activity: b.activity || "",
+      quantity: b.quantity || "",
+      batch_no: b.batch_no || "",
+      mfg_label: b.mfg_label || "",
+      exp_label: b.exp_label || "",
+      country_of_origin: b.country_of_origin || "",
+      responsibility_line: b.responsibility_line || "Packed & Marketed by",
+      company_line: b.company_line || "Ingredientz Inc.",
       address_block: b.address_block || DEFAULT_ADDRESS,
     });
-    setSupplierId(b.supplier_id || '');
+    setSupplierId(b.supplier_id ? String(b.supplier_id) : "");
     setScanPreview(b.scan_url || null);
     setScanFile(null);
-    setStatus({ kind: 'ok', msg: `Loaded ${b.product_name} · ${b.batch_no || 'no batch'} — press Print` });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setStatus({ kind: "ok", msg: `Loaded ${b.product_name} · ${b.batch_no || "no batch"} — press Print` });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function saveAndPrint() {
     if (!form.product_name.trim()) {
-      setStatus({ kind: 'err', msg: 'Product name is required.' });
+      setStatus({ kind: "err", msg: "Product name is required." });
       return;
     }
     setBusy(true);
     setStatus(null);
     try {
       let scan_url =
-        typeof scanPreview === 'string' && scanPreview.startsWith('http') ? scanPreview : null;
+        typeof scanPreview === "string" && scanPreview.startsWith("http") ? scanPreview : null;
       if (scanFile) scan_url = await uploadScan(scanFile);
 
       await saveBatch({
@@ -96,10 +101,10 @@ export default function LabelStudio() {
       });
 
       refreshRecent();
-      setStatus({ kind: 'ok', msg: 'Saved. Opening print…' });
+      setStatus({ kind: "ok", msg: "Saved. Opening print…" });
       setTimeout(() => window.print(), 250);
     } catch (err) {
-      setStatus({ kind: 'err', msg: `Could not save: ${err.message}` });
+      setStatus({ kind: "err", msg: `Could not save: ${err.message}` });
     } finally {
       setBusy(false);
     }
@@ -112,7 +117,7 @@ export default function LabelStudio() {
       company_line: f.company_line,
       address_block: f.address_block,
     }));
-    setSupplierId('');
+    setSupplierId("");
     setScanFile(null);
     setScanPreview(null);
     setStatus(null);
@@ -120,11 +125,6 @@ export default function LabelStudio() {
 
   return (
     <div className="ls-root">
-      <header className="ls-head">
-        <h1>Labels</h1>
-        <span>Re-label · 100 × 75 mm</span>
-      </header>
-
       <div className="ls-layout">
         {/* ---------------- form ---------------- */}
         <section className="ls-panel" aria-label="Batch details">
@@ -135,7 +135,7 @@ export default function LabelStudio() {
               <select id="ls-sup" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
                 <option value="">— select supplier —</option>
                 {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>{nameOf(s)}</option>
                 ))}
               </select>
             </div>
@@ -144,41 +144,41 @@ export default function LabelStudio() {
           <h2>From supplier scan</h2>
           <fieldset className="ls-set">
             <div className="ls-field"><label>Product name</label>
-              <input type="text" value={form.product_name} onChange={set('product_name')} /></div>
+              <input type="text" value={form.product_name} onChange={set("product_name")} /></div>
             <div className="ls-field"><label>Botanical / CAS no.</label>
-              <input type="text" value={form.botanical_cas} onChange={set('botanical_cas')} /></div>
+              <input type="text" value={form.botanical_cas} onChange={set("botanical_cas")} /></div>
             <div className="ls-row">
               <div className="ls-field"><label>Activity</label>
-                <input type="text" value={form.activity} onChange={set('activity')} /></div>
+                <input type="text" value={form.activity} onChange={set("activity")} /></div>
               <div className="ls-field"><label>Quantity</label>
-                <input type="text" value={form.quantity} onChange={set('quantity')} /></div>
+                <input type="text" value={form.quantity} onChange={set("quantity")} /></div>
             </div>
             <div className="ls-row">
               <div className="ls-field"><label>MFG date</label>
-                <input type="text" value={form.mfg_label} onChange={set('mfg_label')} /></div>
+                <input type="text" value={form.mfg_label} onChange={set("mfg_label")} /></div>
               <div className="ls-field"><label>EXP date</label>
-                <input type="text" value={form.exp_label} onChange={set('exp_label')} /></div>
+                <input type="text" value={form.exp_label} onChange={set("exp_label")} /></div>
             </div>
             <div className="ls-field"><label>Batch no.</label>
-              <input type="text" value={form.batch_no} onChange={set('batch_no')} /></div>
+              <input type="text" value={form.batch_no} onChange={set("batch_no")} /></div>
             <div className="ls-field"><label>Country of origin</label>
-              <input type="text" value={form.country_of_origin} onChange={set('country_of_origin')}
+              <input type="text" value={form.country_of_origin} onChange={set("country_of_origin")}
                      placeholder="e.g. Made in India" /></div>
           </fieldset>
 
           <h2>Fixed — Ingredientz</h2>
           <fieldset className="ls-set">
             <div className="ls-field"><label>Responsibility line</label>
-              <input type="text" value={form.responsibility_line} onChange={set('responsibility_line')} /></div>
+              <input type="text" value={form.responsibility_line} onChange={set("responsibility_line")} /></div>
             <div className="ls-field"><label>Company line</label>
-              <input type="text" value={form.company_line} onChange={set('company_line')} /></div>
+              <input type="text" value={form.company_line} onChange={set("company_line")} /></div>
             <div className="ls-field"><label>Address block</label>
-              <textarea value={form.address_block} onChange={set('address_block')} /></div>
+              <textarea value={form.address_block} onChange={set("address_block")} /></div>
           </fieldset>
 
           <div className="ls-btnrow">
             <button className="ls-btn accent" onClick={saveAndPrint} disabled={busy}>
-              {busy ? 'Saving…' : 'Save & Print'}
+              {busy ? "Saving…" : "Save & Print"}
             </button>
             <button className="ls-btn ghost" onClick={() => window.print()}>Print only</button>
             <button className="ls-btn ghost" onClick={clearBatch}>Clear</button>
@@ -195,7 +195,7 @@ export default function LabelStudio() {
                 <img className="ls-scan" src={scanPreview} alt="Supplier label scan" />
               ) : (
                 <div
-                  className={`ls-drop ${drag ? 'drag' : ''}`}
+                  className={`ls-drop ${drag ? "drag" : ""}`}
                   onClick={() => fileInput.current?.click()}
                   onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
                   onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
@@ -218,13 +218,13 @@ export default function LabelStudio() {
               <div className="ls-print-area">
                 <div className="ls-label">
                   <div className="ls-lhead">
-                    <img className="ls-brand" src={INGREDIENTZ_LOGO} alt="Ingredientz" />
+                    <img className="ls-brand" src={LOGO} alt="Ingredientz" />
                     <div className="ls-packedby">{form.responsibility_line}</div>
                   </div>
                   <div className="ls-product">
-                    <div className="name">{form.product_name || '—'}</div>
+                    <div className="name">{form.product_name || "—"}</div>
                     <div className="sub">
-                      {[form.botanical_cas, form.country_of_origin].filter(Boolean).join('  ·  ')}
+                      {[form.botanical_cas, form.country_of_origin].filter(Boolean).join("  ·  ")}
                     </div>
                   </div>
                   <div className="ls-data">
@@ -252,7 +252,7 @@ export default function LabelStudio() {
                 {recent.map((b) => (
                   <button key={b.id} className="ls-chip" onClick={() => loadForReprint(b)}>
                     <b>{b.product_name}</b>
-                    <small>{b.batch_no || 'no batch'} · {b.supplier_name || '—'}</small>
+                    <small>{b.batch_no || "no batch"} · {b.supplier_name || "—"}</small>
                   </button>
                 ))}
               </div>
@@ -263,3 +263,5 @@ export default function LabelStudio() {
     </div>
   );
 }
+
+export default LabelStudio;
