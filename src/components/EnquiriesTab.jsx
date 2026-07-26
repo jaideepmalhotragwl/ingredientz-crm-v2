@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { supabase } from "../config.js";
 import { C, STAGES, STAGE_COLORS, PRIO_COLORS } from "../constants.js";
 import { daysUntil, fmtDate } from "../utils.js";
@@ -51,6 +51,20 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
   const [filterBand,setFilterBand]=useState("");   // "" = all deal sizes
   const [sort,setSort]=useState({k:"created_at",d:-1});
   const [pendingLost,setPendingLost]=useState(null);   // {id, stage} awaiting a required reason
+  const [remarkByEnq,setRemarkByEnq]=useState({});   // latest remark per enquiry_id
+  useEffect(()=>{
+    let alive=true;
+    (async()=>{
+      const {data}=await supabase.from("enquiry_remarks")
+        .select("enquiry_id,remark,created_at,created_by")
+        .order("created_at",{ascending:false}).limit(5000);
+      if(!alive)return;
+      const m={};
+      (data||[]).forEach(r=>{ if(!(r.enquiry_id in m)) m[r.enquiry_id]=r; });  // first seen = latest
+      setRemarkByEnq(m);
+    })();
+    return ()=>{alive=false;};
+  },[enquiries.length]);
   // Apply a stage change, but force a reason first for closing stages.
   function requestStage(id,stage){
     if(REASON_STAGES.includes(stage)){ setPendingLost({id,stage}); return; }
@@ -131,6 +145,7 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
               <th key={k} onClick={()=>toggleSort(k)} style={{padding:"9px 13px",textAlign:"left",cursor:"pointer",color:sort.k===k?C.blue:C.muted,borderBottom:`1px solid ${C.border}`,fontWeight:700,letterSpacing:1,fontSize:9,textTransform:"uppercase",userSelect:"none",whiteSpace:"nowrap"}}>
                 {l}{sort.k===k?(sort.d===1?" ↑":" ↓"):""}
               </th>))}
+              <th style={{padding:"9px 13px",textAlign:"left",color:C.muted,borderBottom:`1px solid ${C.border}`,fontWeight:700,letterSpacing:1,fontSize:9,textTransform:"uppercase",whiteSpace:"nowrap"}}>Remark</th>
               <th style={{padding:"9px 13px",borderBottom:`1px solid ${C.border}`}}></th>
             </tr>
           </thead>
@@ -167,6 +182,7 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
                   <select value={e.stage} onChange={ev=>requestStage(e.id,ev.target.value)} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:11,color:STAGE_COLORS[STAGES.indexOf(e.stage)]||C.muted,padding:0}}>
                     {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
+                  {e.close_reason&&<div title={e.close_reason+(e.close_reason_note?` — ${e.close_reason_note}`:"")} style={{fontSize:9,color:C.red,marginTop:3,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>✕ {e.close_reason}</div>}
                 </td>
                 <td style={{padding:"9px 13px"}}>
                   {val ? (
@@ -179,6 +195,11 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
                 </td>
                 <td style={{padding:"9px 13px",color:closeS?C.amber:C.muted,fontWeight:closeS?700:400}}>{fmtDate(e.expected_closure)}</td>
                 <td style={{padding:"9px 13px",color:overR?C.red:C.muted,fontWeight:overR?700:400}}>{overR?`⚠ ${Math.abs(dR)}d overdue`:fmtDate(e.reminder_date)}</td>
+                <td style={{padding:"9px 13px",maxWidth:190}} onClick={ev=>{ev.stopPropagation();onSelect(e);}}>
+                  {(()=>{const rem=remarkByEnq[e.id];return rem
+                    ?<div><div style={{fontSize:11,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:170}} title={rem.remark}>{rem.remark}</div><div style={{fontSize:9,color:C.muted,marginTop:2}}>{rem.created_by?`${rem.created_by} · `:""}{fmtDate(rem.created_at)}</div></div>
+                    :<span style={{color:C.muted,fontSize:11}}>—</span>;})()}
+                </td>
                 <td style={{padding:"9px 13px"}} onClick={ev=>ev.stopPropagation()}>
                   <button onClick={()=>onDelete(e.id)} style={{background:"transparent",border:`1px solid ${C.red}44`,borderRadius:5,padding:"3px 7px",cursor:"pointer",color:C.red,fontSize:10}}>✕</button>
                 </td>
