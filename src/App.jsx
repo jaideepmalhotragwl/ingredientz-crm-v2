@@ -27,6 +27,7 @@ import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
 import { MarketSignals }   from "./components/MarketSignals.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
+import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
 export default function App() {
   const [loading, setLoading]       = useState(true);
   const [toast, setToast]           = useState(null);
@@ -728,6 +729,7 @@ export default function App() {
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
     { id: "categories", label: "Categories", icon: "📂", badge: 0 },
     { id: "suppliers",  label: "Suppliers",  icon: "🏭", badge: 0 },
+    { id: "labels",     label: "Labels",     icon: "🏷️", badge: 0 },
     { id: "approvals",  label: "Approvals",  icon: "✅", badge: pendingApprovals },
     { id: "documents",  label: "Documents",  icon: "📄", badge: 0 },
     { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
@@ -812,6 +814,7 @@ export default function App() {
         {activeTab === "products"   && <ProductsTab />}
         {activeTab === "categories" && <CategoriesTab />}
         {activeTab === "suppliers"  && <SuppliersTab />}
+        {activeTab === "labels"     && <LabelStudio suppliers={suppliers} />}
         {activeTab === "approvals"  && <ApprovalsTab onChange={refreshPendingApprovals} />}
         {activeTab === "documents"  && <DocumentsTab />}
         {activeTab === "content"    && <ContentEngine onDone={() => setActiveTab("dashboard")} />}
