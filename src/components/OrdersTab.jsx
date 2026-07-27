@@ -9,7 +9,6 @@ import {
   getSourceLabel,
   getSourceColor
 } from "../lib/orderUtils.js";
-
 // ── FX: USD-equivalent rates. Update these as rates move. ───────────────────
 // (1 unit of the currency = this many USD)
 const FX = { USD: 1, EUR: 1.08, INR: 0.0117 };
@@ -17,14 +16,14 @@ function toUSD(amount, currency) {
   const r = FX[(currency || "USD").toUpperCase()] ?? 1;
   return (parseFloat(amount) || 0) * r;
 }
-
+// Owner of the PO — reads whichever field exists on the order.
+const ownerOf = o => o.owner || o.assigned_to || o.created_by || "";
 export function OrdersTab({ orders, customers, onSelect, onNew }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [customerFilter, setCustomerFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
   const [sort, setSort] = useState({ k: "customer_po_date", d: -1 });  // default: newest PO first
-
   // ── Metrics ───────────────────────────────────────────────────────────────
   const metrics = useMemo(() => {
     // Order book = every order except Cancelled, summed currency-aware.
@@ -37,21 +36,17 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       byCur[cur] = (byCur[cur] || 0) + amt;
       bookUSD += toUSD(amt, cur);
     });
-
     const active = orders.filter(o => !["Delivered", "Cancelled"].includes(o.status));
     const awaitingUSD = orders
       .filter(o => ["Invoiced", "Confirmed", "Suppliers Assigned"].includes(o.status))
       .reduce((sum, o) => sum + toUSD(o.total_amount, o.currency), 0);
     const inTransit = orders.filter(o => o.status === "Shipped").length;
-
     return { active: active.length, awaitingUSD, inTransit, bookUSD, byCur };
   }, [orders]);
-
   const converted = Object.keys(metrics.byCur).some(c => c !== "USD");
   const curBreakdown = Object.entries(metrics.byCur)
     .map(([c, v]) => `${c} ${Math.round(v).toLocaleString()}`)
     .join("  ·  ");
-
   // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const rows = orders.filter(o => {
@@ -61,7 +56,7 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       if (search) {
         const s = search.toLowerCase();
         const cust = customers.find(c => c.id === o.customer_id);
-        const hay = `${o.order_number} ${o.customer_po_number || ""} ${cust?.company || ""} ${o.job_name || ""}`.toLowerCase();
+        const hay = `${o.order_number} ${o.customer_po_number || ""} ${cust?.company || ""} ${o.job_name || ""} ${ownerOf(o)}`.toLowerCase();
         if (!hay.includes(s)) return false;
       }
       return true;
@@ -71,6 +66,7 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       let va, vb;
       if (sort.k === "value") { va = toUSD(a.total_amount, a.currency); vb = toUSD(b.total_amount, b.currency); }
       else if (sort.k === "customer") { va = cust(a.customer_id); vb = cust(b.customer_id); }
+      else if (sort.k === "owner") { va = ownerOf(a); vb = ownerOf(b); }
       else { va = a[sort.k] ?? ""; vb = b[sort.k] ?? ""; }
       if (typeof va === "number") return (va - vb) * sort.d;
       // dates & strings — empty values sink to the bottom
@@ -79,13 +75,10 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       return String(va).localeCompare(String(vb)) * sort.d;
     });
   }, [orders, search, statusFilter, customerFilter, sourceFilter, customers, sort]);
-
   function toggleSort(k) { setSort(s => s.k === k ? { k, d: s.d * -1 } : { k, d: -1 }); }
-
   function getCustomerName(id) {
     return customers.find(c => c.id === id)?.company || "—";
   }
-
   // ── Styles ────────────────────────────────────────────────────────────────
   const card = { background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 16 };
   const inputStyle = {
@@ -106,7 +99,6 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
     fontSize: 11, padding: "3px 9px", borderRadius: 99, fontWeight: 600,
     background: `${color}22`, color: color, display: "inline-block"
   });
-
   return (
     <div>
       {/* Metrics row */}
@@ -128,12 +120,11 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
           }
         />
       </div>
-
       {/* Toolbar */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         <input
           style={{ ...inputStyle, flex: 1, minWidth: 200 }}
-          placeholder="Search by order #, customer, PO #..."
+          placeholder="Search by order #, customer, PO #, owner..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -152,7 +143,6 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
         </select>
         <button style={btnPrimary} onClick={onNew}>+ New order</button>
       </div>
-
       {/* Table */}
       <div style={{ ...card, padding: 0, overflow: "hidden" }}>
         {filtered.length === 0 ? (
@@ -168,6 +158,7 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
                 <Th>#</Th>
                 <ThSort k="order_number" label="Order #" sort={sort} onSort={toggleSort} />
                 <ThSort k="customer" label="Customer" sort={sort} onSort={toggleSort} />
+                <ThSort k="owner" label="Owner" sort={sort} onSort={toggleSort} />
                 <ThSort k="customer_po_number" label="Customer PO" sort={sort} onSort={toggleSort} />
                 <ThSort k="customer_po_date" label="PO Date" sort={sort} onSort={toggleSort} />
                 <ThSort k="value" label="Value" sort={sort} onSort={toggleSort} />
@@ -190,6 +181,7 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
                     <span style={{ fontFamily: "monospace", fontSize: 12 }}>{o.order_number}</span>
                   </Td>
                   <Td>{getCustomerName(o.customer_id)}</Td>
+                  <Td style={{ color: ownerOf(o) ? C.ink : C.faded }}>{ownerOf(o) || "—"}</Td>
                   <Td style={{ color: C.muted }}>{o.customer_po_number || "—"}</Td>
                   <Td style={{ color: C.muted, fontSize: 12 }}>{o.customer_po_date ? fmtDate(o.customer_po_date) : "—"}</Td>
                   <Td>{fmtMoney(o.total_amount, o.currency)}</Td>
@@ -206,14 +198,12 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
           </table>
         )}
       </div>
-
       <div style={{ fontSize: 11, color: C.muted, marginTop: 10, textAlign: "right" }}>
         Showing {filtered.length} of {orders.length} orders
       </div>
     </div>
   );
 }
-
 function Metric({ label, value }) {
   return (
     <div style={{ background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: "12px 16px" }}>
@@ -222,7 +212,6 @@ function Metric({ label, value }) {
     </div>
   );
 }
-
 function Th({ children }) {
   return (
     <th style={{
@@ -231,7 +220,6 @@ function Th({ children }) {
     }}>{children}</th>
   );
 }
-
 function ThSort({ k, label, sort, onSort }) {
   const active = sort.k === k;
   return (
@@ -247,7 +235,6 @@ function ThSort({ k, label, sort, onSort }) {
     </th>
   );
 }
-
 function Td({ children, style = {} }) {
   return <td style={{ padding: "12px 14px", ...style }}>{children}</td>;
 }
