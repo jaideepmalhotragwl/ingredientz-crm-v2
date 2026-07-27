@@ -21,8 +21,18 @@ const EMPTY = {
   address_block: DEFAULT_ADDRESS,
 };
 
-// App passes its already-loaded `suppliers` list in. If it isn't provided
-// (e.g. used standalone), the component fetches them itself.
+// Set the print page size at run time. Cleared = falls back to the 100×75 mm
+// rule in the stylesheet (single label); set to A4 for a tiled sheet.
+function setPrintPageSize(css) {
+  let el = document.getElementById("ls-page-size");
+  if (!el) {
+    el = document.createElement("style");
+    el.id = "ls-page-size";
+    document.head.appendChild(el);
+  }
+  el.textContent = css || "";
+}
+
 export function LabelStudio({ suppliers: suppliersProp = null }) {
   const [suppliersState, setSuppliersState] = useState([]);
   const suppliers = suppliersProp || suppliersState;
@@ -36,11 +46,16 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
   const [extracting, setExtracting] = useState(false);
   const [status, setStatus] = useState(null); // {kind:'ok'|'err', msg}
   const [drag, setDrag] = useState(false);
+  const [perSheet, setPerSheet] = useState(6);       // copies tiled on one page
+  const [printMode, setPrintMode] = useState("single"); // 'single' | 'sheet'
   const fileInput = useRef(null);
 
   useEffect(() => {
     if (!suppliersProp) listSuppliers().then(setSuppliersState);
     refreshRecent();
+    const reset = () => setPrintMode("single");
+    window.addEventListener("afterprint", reset);
+    return () => window.removeEventListener("afterprint", reset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -61,8 +76,6 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
     r.readAsDataURL(file);
   }
 
-  // Read the scan with Claude vision and drop the fields into the form.
-  // Only overwrites a field when the scan actually returned a value.
   async function autofill() {
     if (!scanFile) { setStatus({ kind: "err", msg: "Upload a scan first, then Auto-fill." }); return; }
     setExtracting(true);
@@ -109,6 +122,20 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // Print one label at exactly 100 × 75 mm.
+  function printSingle() {
+    setPrintMode("single");
+    setPrintPageSize(""); // fall back to the 100×75 rule in the stylesheet
+    setTimeout(() => window.print(), 60);
+  }
+
+  // Print `perSheet` copies of the current label, tiled on an A4 page.
+  function printSheet() {
+    setPrintMode("sheet");
+    setPrintPageSize("@page{size:A4;margin:0}");
+    setTimeout(() => window.print(), 60);
+  }
+
   async function saveAndPrint() {
     if (!form.product_name.trim()) {
       setStatus({ kind: "err", msg: "Product name is required." });
@@ -130,7 +157,7 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
 
       refreshRecent();
       setStatus({ kind: "ok", msg: "Saved. Opening print…" });
-      setTimeout(() => window.print(), 250);
+      printSingle();
     } catch (err) {
       setStatus({ kind: "err", msg: `Could not save: ${err.message}` });
     } finally {
@@ -151,8 +178,36 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
     setStatus(null);
   }
 
+  // One label — reused by the on-screen preview, the single print, and each
+  // cell of the tiled sheet, so they always look identical.
+  const LabelCard = () => (
+    <div className="ls-label">
+      <div className="ls-lhead">
+        <img className="ls-brand" src={LOGO} alt="Ingredientz" />
+        <div className="ls-packedby">{form.responsibility_line}</div>
+      </div>
+      <div className="ls-product">
+        <div className="name">{form.product_name || "—"}</div>
+        <div className="sub">
+          {[form.botanical_cas, form.country_of_origin].filter(Boolean).join("  ·  ")}
+        </div>
+      </div>
+      <div className="ls-data">
+        <div className="ls-dl"><dt>Activity</dt><dd>{form.activity}</dd></div>
+        <div className="ls-dl"><dt>MFG date</dt><dd>{form.mfg_label}</dd></div>
+        <div className="ls-dl"><dt>Quantity</dt><dd>{form.quantity}</dd></div>
+        <div className="ls-dl"><dt>EXP date</dt><dd>{form.exp_label}</dd></div>
+        <div className="ls-dl wide"><dt>Batch no.</dt><dd>{form.batch_no}</dd></div>
+      </div>
+      <div className="ls-foot">
+        <div className="co">{form.company_line}</div>
+        <div className="addr">{form.address_block}</div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="ls-root">
+    <div className="ls-root" data-print={printMode}>
       <div className="ls-layout">
         {/* ---------------- form ---------------- */}
         <section className="ls-panel" aria-label="Batch details">
@@ -208,11 +263,23 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
             <button className="ls-btn accent" onClick={saveAndPrint} disabled={busy}>
               {busy ? "Saving…" : "Save & Print"}
             </button>
-            <button className="ls-btn ghost" onClick={() => window.print()}>Print only</button>
+            <button className="ls-btn ghost" onClick={printSingle}>Print 1</button>
             <button className="ls-btn ghost" onClick={clearBatch}>Clear</button>
           </div>
+
+          <div className="ls-sheetbar">
+            <label htmlFor="ls-per">Copies per sheet</label>
+            <select id="ls-per" value={perSheet} onChange={(e) => setPerSheet(Number(e.target.value))}>
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={4}>4</option>
+              <option value={6}>6</option>
+            </select>
+            <button className="ls-btn" onClick={printSheet}>Print sheet</button>
+          </div>
+
           {status && <p className={`ls-status ${status.kind}`}>{status.msg}</p>}
-          <p className="ls-hint">Print at 100% scale with margins set to none. Every Save writes a lot to the batches table so you can reprint it below.</p>
+          <p className="ls-hint">Print at 100% scale, margins none. "Print 1" = a single 100 × 75 mm label. "Print sheet" tiles your chosen number onto one A4 page (up to 6) to save paper. Every Save writes a lot to the batches table so you can reprint it below.</p>
         </section>
 
         {/* ---------------- work area ---------------- */}
@@ -253,33 +320,20 @@ export function LabelStudio({ suppliers: suppliersProp = null }) {
             </div>
 
             <div className="ls-col">
-              {/* print-isolated label */}
+              {/* single-label print target + on-screen preview */}
               <div className="ls-print-area">
-                <div className="ls-label">
-                  <div className="ls-lhead">
-                    <img className="ls-brand" src={LOGO} alt="Ingredientz" />
-                    <div className="ls-packedby">{form.responsibility_line}</div>
-                  </div>
-                  <div className="ls-product">
-                    <div className="name">{form.product_name || "—"}</div>
-                    <div className="sub">
-                      {[form.botanical_cas, form.country_of_origin].filter(Boolean).join("  ·  ")}
-                    </div>
-                  </div>
-                  <div className="ls-data">
-                    <div className="ls-dl"><dt>Activity</dt><dd>{form.activity}</dd></div>
-                    <div className="ls-dl"><dt>MFG date</dt><dd>{form.mfg_label}</dd></div>
-                    <div className="ls-dl"><dt>Quantity</dt><dd>{form.quantity}</dd></div>
-                    <div className="ls-dl"><dt>EXP date</dt><dd>{form.exp_label}</dd></div>
-                    <div className="ls-dl wide"><dt>Batch no.</dt><dd>{form.batch_no}</dd></div>
-                  </div>
-                  <div className="ls-foot">
-                    <div className="co">{form.company_line}</div>
-                    <div className="addr">{form.address_block}</div>
-                  </div>
-                </div>
+                <LabelCard />
               </div>
               <p className="cap">Your label — true size, 100 × 75 mm</p>
+            </div>
+          </div>
+
+          {/* tiled sheet — hidden on screen, revealed only when printing a sheet */}
+          <div className="ls-sheet">
+            <div className="ls-sheet-grid">
+              {Array.from({ length: perSheet }).map((_, i) => (
+                <div className="ls-sheet-cell" key={i}><LabelCard /></div>
+              ))}
             </div>
           </div>
 

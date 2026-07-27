@@ -48,6 +48,7 @@
 .ls-drop .plus{font-size:26px;color:var(--accent);line-height:1}
 .ls-drop p{margin:8px 0 0;font-size:12px;line-height:1.5}
 .ls-scan{width:100%;border:1px solid var(--rule);border-radius:6px}
+.ls-autofill{align-self:stretch;justify-content:center;margin-top:2px}
 
 .ls-recent{margin-top:16px}
 .ls-recent h2{margin-bottom:8px}
@@ -74,12 +75,31 @@
 .ls-foot .co{font-size:3.1mm;font-weight:700;letter-spacing:-.01em;line-height:1.15}
 .ls-foot .addr{font-size:2.35mm;line-height:1.4;color:var(--ink-soft);margin-top:.7mm;white-space:pre-line}
 
-/* ---------- print: isolate the label, exact size ---------- */
+/* ---------- sheet controls + tiled grid ---------- */
+.ls-sheetbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px}
+.ls-sheetbar label{margin:0}
+.ls-sheetbar select{width:auto;min-width:62px}
+.ls-sheet{display:none;background:#fff}
+.ls-sheet-grid{display:grid;grid-template-columns:repeat(2,100mm);grid-auto-rows:75mm;justify-content:center;align-content:start}
+.ls-sheet-cell{width:100mm;height:75mm;overflow:hidden}
+
+/* ---------- print ---------- */
+/* Base page size = one label. JS swaps this to A4 for a tiled sheet. */
 @media print{
   @page{size:100mm 75mm;margin:0}
   body *{visibility:hidden !important}
-  .ls-print-area,.ls-print-area *{visibility:visible !important}
-  .ls-print-area{position:fixed;inset:0;margin:0;padding:0}
   .ls-label{box-shadow:none !important}
+
+  /* single-label mode (default) */
+  .ls-root[data-print="single"] .ls-print-area,
+  .ls-root[data-print="single"] .ls-print-area *{visibility:visible !important}
+  .ls-root[data-print="single"] .ls-print-area{position:fixed;inset:0;margin:0;padding:0}
+  .ls-root[data-print="single"] .ls-sheet{display:none !important}
+
+  /* tiled-sheet mode */
+  .ls-root[data-print="sheet"] .ls-print-area{display:none !important}
+  .ls-root[data-print="sheet"] .ls-sheet,
+  .ls-root[data-print="sheet"] .ls-sheet *{visibility:visible !important}
+  .ls-root[data-print="sheet"] .ls-sheet{display:block !important;position:absolute;inset:0;margin:0}
 }
 @media (prefers-reduced-motion:reduce){.ls-root *{transition:none !important}}
