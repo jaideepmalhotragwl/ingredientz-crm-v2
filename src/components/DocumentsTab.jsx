@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { C } from "../constants.js";
 import { SUPA_URL, SUPA_KEY } from "../config.js";
-import { GROUP_A, GROUP_B, FIELDS, findDoc } from "../lib/docTemplates.js";
+import { GROUP_A, FIELDS, findDoc } from "../lib/docTemplates.js";
 // ── COUNTRY LIST ──────────────────────────────────────────────────────────
 const COUNTRIES = [
   "Afghanistan","Albania","Algeria","Argentina","Armenia","Australia","Austria",
@@ -49,12 +49,14 @@ const ENTITIES = {
   },
 };
 const DOC_TYPES = [
-  { id: "coa",     label: "Certificate of Analysis" },
-  { id: "tds",     label: "Technical Data Sheet" },
-  { id: "spec",    label: "Product Specification" },
-  { id: "invoice", label: "Invoice / Proforma" },
-  { id: "po",      label: "Purchase Order" },
-  { id: "letter",  label: "General Letter" },
+  { id: "coa",       label: "Certificate of Analysis" },
+  { id: "sds",       label: "Safety Data Sheet (SDS / MSDS)" },
+  { id: "tds",       label: "Technical Data Sheet" },
+  { id: "spec",      label: "Product Specification" },
+  { id: "nutrition", label: "Nutritional Information" },
+  { id: "invoice",   label: "Invoice / Proforma" },
+  { id: "po",        label: "Purchase Order" },
+  { id: "letter",    label: "General Letter" },
 ];
 const REFORMAT_ENDPOINT = `${SUPA_URL}/functions/v1/reformat-document`;
 function resolveLetterhead(country) {
@@ -381,7 +383,7 @@ export function DocumentsTab() {
             Documents
           </div>
           <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-            <b>Reformat</b> a supplier document onto your letterhead, or <b>generate</b> branded CoA, SDS, TDS and compliance declarations from templates.
+            <b>Reformat</b> supplier data documents (CoA, SDS, TDS, Nutritional) onto your letterhead, or <b>generate</b> branded compliance declarations (GRAS, BSE/TSE, allergen, etc.) from templates.
           </div>
         </div>
       </div>
@@ -455,12 +457,7 @@ export function DocumentsTab() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <Field label="Document">
               <select value={genType} onChange={e => setGenType(e.target.value)} style={inputStyle}>
-                <optgroup label="Declarations">
-                  {GROUP_A.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </optgroup>
-                <optgroup label="Data documents">
-                  {GROUP_B.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </optgroup>
+                {GROUP_A.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </Field>
             <Field label="Reference no. (optional)">
