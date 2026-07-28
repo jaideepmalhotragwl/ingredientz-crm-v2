@@ -1,0 +1,245 @@
+/* ==========================================================================
+   INGREDIENTZ — SHARED LETTERHEAD
+   v1.0  ·  Centred logo header · Navy rule over teal hairline (top & bottom)
+
+   This file is the single source of truth for every Ingredientz document:
+   quotations, proforma invoices, COAs, MOUs, LOIs, supplier agreements.
+
+   RULE: do not restyle the letterhead inside a module. Change this file,
+   push it, and every module that imports it updates.
+
+   Used by: Enquiry CRM · Sales CRM · ingredientz.co · Label Studio
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
+
+/* --------------------------------------------------------------------------
+   1. BRAND TOKENS
+   -------------------------------------------------------------------------- */
+:root {
+  --inz-navy:  #10314F;
+  --inz-teal:  #1B9AD6;
+  --inz-ink:   #1C2733;
+  --inz-slate: #5A6875;
+  --inz-hair:  #D8DEE4;
+  --inz-tint:  #F2F7FA;
+
+  --inz-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --inz-sans:  'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Page geometry — US Letter (default) */
+  --inz-page-w: 8.5in;
+  --inz-page-h: 11in;
+  --inz-side:   0.95in;   /* left + right margin */
+  --inz-head-t: 0.62in;   /* logo distance from top edge */
+  --inz-foot-b: 0.52in;   /* address distance from bottom edge */
+  --inz-top:    1.95in;   /* body starts here — clears the header */
+  --inz-bottom: 1.35in;   /* body ends here — clears the footer */
+}
+
+/* A4 — add class "lh-a4" to .lh-doc for EU customers.
+   Also add  @page { size: A4 }  in the page that renders it. */
+.lh-doc.lh-a4 {
+  --inz-page-w: 210mm;
+  --inz-page-h: 297mm;
+  --inz-side:   22mm;
+  --inz-head-t: 16mm;
+  --inz-foot-b: 14mm;
+  --inz-top:    50mm;
+  --inz-bottom: 34mm;
+}
+
+/* --------------------------------------------------------------------------
+   2. THE SHEET
+   Structure:  .lh-doc  >  .lh-header + .lh-body + .lh-footer
+
+   On screen the header and footer are pinned to the top and bottom of a
+   sheet-sized card. In print, @page reserves the same space on EVERY page
+   and the header/footer are fixed — browsers repeat fixed elements on each
+   printed page, so a 5-page MOU carries the letterhead throughout.
+   -------------------------------------------------------------------------- */
+.lh-doc {
+  position: relative;
+  width: var(--inz-page-w);
+  min-height: var(--inz-page-h);
+  margin: 0 auto;
+  background: #fff;
+  color: var(--inz-ink);
+  font-family: var(--inz-sans);
+  font-size: 11pt;
+  line-height: 1.62;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* --------------------------------------------------------------------------
+   3. HEADER
+   -------------------------------------------------------------------------- */
+.lh-header {
+  position: absolute;
+  top: var(--inz-head-t); left: var(--inz-side); right: var(--inz-side);
+  text-align: center;
+}
+.lh-logo { height: 0.60in; width: auto; display: inline-block; }
+.lh-doc.lh-a4 .lh-logo { height: 15mm; }
+
+/* navy rule + teal hairline — used at top and bottom */
+.lh-rule      { height: 3px; background: var(--inz-navy); }
+.lh-rule-thin { height: 1px; background: var(--inz-teal); margin-top: 3px; }
+.lh-header .lh-rule { margin-top: 0.30in; }
+
+/* --------------------------------------------------------------------------
+   4. BODY
+   -------------------------------------------------------------------------- */
+.lh-body { padding: var(--inz-top) var(--inz-side) var(--inz-bottom); }
+
+/* --------------------------------------------------------------------------
+   5. FOOTER
+   -------------------------------------------------------------------------- */
+.lh-footer {
+  position: absolute;
+  bottom: var(--inz-foot-b); left: var(--inz-side); right: var(--inz-side);
+  text-align: center;
+}
+.lh-addr {
+  font-family: var(--inz-serif);
+  font-size: 9.5pt;
+  color: var(--inz-navy);
+  letter-spacing: .02em;
+  margin-top: 14px;
+}
+.lh-contacts {
+  margin-top: 7px;
+  font-size: 8.5pt;
+  letter-spacing: .09em;
+  color: var(--inz-slate);
+}
+.lh-sep { color: var(--inz-teal); margin: 0 10px; font-weight: 600; }
+
+/* --------------------------------------------------------------------------
+   6. DOCUMENT TYPOGRAPHY
+   Anything placed inside .lh-body-cell is styled on-brand automatically.
+   -------------------------------------------------------------------------- */
+.lh-body-cell h1 {
+  font-family: var(--inz-serif);
+  font-weight: 600;
+  font-size: 15pt;
+  color: var(--inz-navy);
+  margin: 0 0 4px;
+  letter-spacing: .01em;
+}
+.lh-body-cell h2 {
+  font-family: var(--inz-serif);
+  font-weight: 600;
+  font-size: 12pt;
+  color: var(--inz-navy);
+  margin: 22px 0 6px;
+}
+.lh-body-cell h3 {
+  font-family: var(--inz-sans);
+  font-weight: 600;
+  font-size: 10pt;
+  color: var(--inz-navy);
+  margin: 18px 0 4px;
+  letter-spacing: .02em;
+}
+.lh-body-cell p  { margin: 0 0 12px; }
+.lh-body-cell ul,
+.lh-body-cell ol { margin: 0 0 12px; padding-left: 18px; }
+.lh-body-cell li { margin-bottom: 5px; }
+.lh-body-cell a  { color: var(--inz-teal); text-decoration: none; }
+.lh-body-cell strong { color: var(--inz-navy); font-weight: 600; }
+
+/* meta line above the title: date / reference */
+.lh-meta {
+  font-size: 10pt;
+  color: var(--inz-slate);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.lh-ref {
+  font-size: 9pt;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--inz-teal);
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+/* zebra table — house style */
+.lh-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 14px 0 18px; }
+.lh-table th {
+  background: var(--inz-navy); color: #fff; text-align: left;
+  padding: 8px 10px; font-weight: 600; font-size: 8.5pt;
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.lh-table td { padding: 8px 10px; border-bottom: 1px solid var(--inz-hair); }
+.lh-table tbody tr:nth-child(even) { background: var(--inz-tint); }
+.lh-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* teal callout — house style */
+.lh-callout {
+  border-left: 3px solid var(--inz-teal);
+  background: var(--inz-tint);
+  padding: 11px 14px;
+  margin: 16px 0;
+  font-size: 10pt;
+}
+
+/* signature block */
+.lh-sign { margin-top: 24px; font-size: 10.5pt; }
+.lh-sign b    { color: var(--inz-navy); }
+.lh-sign span { display: block; color: var(--inz-slate); font-size: 9.5pt; }
+
+/* --------------------------------------------------------------------------
+   7. SCREEN PREVIEW CHROME (never printed)
+   -------------------------------------------------------------------------- */
+@media screen {
+  .lh-screen { background: #EDF0F3; padding: 28px 0 56px; min-height: 100vh; }
+  .lh-screen .lh-doc { box-shadow: 0 2px 18px rgba(16,49,79,.14); min-height: var(--inz-page-h); }
+  .lh-toolbar { text-align: center; margin-bottom: 18px; }
+  .lh-btn {
+    font-family: var(--inz-sans); font-size: 13px; font-weight: 500;
+    background: var(--inz-navy); color: #fff; border: 0; border-radius: 6px;
+    padding: 9px 18px; cursor: pointer; letter-spacing: .02em;
+  }
+  .lh-btn:hover { background: #17436B; }
+}
+
+/* --------------------------------------------------------------------------
+   8. PRINT / PDF
+
+   @page reserves the header and footer space on every sheet; the fixed
+   header/footer are pulled up/down into that reserved margin. If you change
+   --inz-top / --inz-bottom above, change the @page margin here to match
+   (@page cannot read CSS variables, so the values are written out).
+   -------------------------------------------------------------------------- */
+@media print {
+  @page { size: letter; margin: 1.95in 0.95in 1.35in; }
+
+  html, body { margin: 0; padding: 0; background: #fff; }
+
+  .lh-screen { background: #fff; padding: 0; min-height: 0; }
+  .lh-doc {
+    width: auto; min-height: 0; box-shadow: none; margin: 0;
+  }
+
+  /* repeat on every printed page */
+  .lh-header { position: fixed; top: -1.33in;    left: 0; right: 0; }
+  .lh-footer { position: fixed; bottom: -0.83in; left: 0; right: 0; }
+
+  /* @page already provides the margins */
+  .lh-body { padding: 0; }
+
+  .lh-callout, .lh-sign, tr, img { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+
+  .lh-no-print, .lh-toolbar { display: none !important; }
+}
+
+/* A4: add this to the module that renders an A4 document
+   @media print { @page { size: A4; margin: 50mm 22mm 34mm; }
+                  .lh-header { top: -34mm; } .lh-footer { bottom: -20mm; } }
+*/
