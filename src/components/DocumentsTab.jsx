@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { C } from "../constants.js";
 import { SUPA_URL, SUPA_KEY } from "../config.js";
 import { GROUP_A, FIELDS, findDoc } from "../lib/docTemplates.js";
+import { ENTITIES, resolveLetterhead, openBrandedDoc } from "../lib/letterhead.js";
 // ── COUNTRY LIST ──────────────────────────────────────────────────────────
 const COUNTRIES = [
   "Afghanistan","Albania","Algeria","Argentina","Armenia","Australia","Austria",
@@ -21,33 +22,10 @@ const COUNTRIES = [
   "Ukraine","United Arab Emirates","United Kingdom","United States","Uruguay","Uzbekistan",
   "Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"
 ];
-const INC_COUNTRIES = new Set(["United States", "Canada"]);
-const ENTITIES = {
-  INC: {
-    name: "Ingredientz Inc",
-    address: "8 The Green, Ste A, Dover, DE 19901, USA",
-    phone: "+1 702 472 8805",
-    email: "support@ingredientz.co",
-    web: "[www.ingredientz.co](https://www.ingredientz.co)",
-    label: "Ingredientz Inc (USA)",
-    headerImg: "/letterheads/header.png",
-    footerImg: "/letterheads/footer.png",
-    watermarkImg: "/letterheads/watermark.png",
-    stampImg: "/letterheads/stamp.png",
-  },
-  PROIN: {
-    name: "Proingredientz Connections Pvt. Ltd.",
-    address: "Mumbai, India",
-    phone: "+91 76666 01980",
-    email: "support@ingredientz.co",
-    web: "[www.ingredientz.co](https://www.ingredientz.co)",
-    label: "Proingredientz (India)",
-    headerImg: null,
-    footerImg: null,
-    watermarkImg: null,
-    stampImg: null,
-  },
-};
+// Entities, country routing and the letterhead itself now live in
+// src/lib/letterhead.js — the same renderer used by invoices and supplier POs.
+// Change an address there and every document in the app follows.
+
 const DOC_TYPES = [
   { id: "coa",       label: "Certificate of Analysis" },
   { id: "sds",       label: "Safety Data Sheet (SDS / MSDS)" },
@@ -59,9 +37,6 @@ const DOC_TYPES = [
   { id: "letter",    label: "General Letter" },
 ];
 const REFORMAT_ENDPOINT = `${SUPA_URL}/functions/v1/reformat-document`;
-function resolveLetterhead(country) {
-  return INC_COUNTRIES.has(country) ? "INC" : "PROIN";
-}
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────
 export function DocumentsTab() {
   const [mode, setMode]       = useState("reformat");   // "reformat" | "generate"
@@ -162,199 +137,15 @@ export function DocumentsTab() {
     setStatus({ type: "success", msg: "Opening document for preview…" });
     renderLetterhead(doc.body(f), ent, addStamp);
   }
-  // ── Render HTML inside an A4 letterhead in a new window ─────────────────────
-  // STYLE A — PHARMA CLASSIC typography baked in
+
+  // ── Render a document on the shared Ingredientz letterhead ────────────────
+  // All the work — letterhead, watermark, stamp, A4 print geometry, repeating
+  // header/footer — happens in src/lib/letterhead.js. Do not restyle here.
   function renderLetterhead(bodyHtml, ent, withStamp) {
-    const win = window.open("", "_blank");
-    if (!win) {
-      setStatus({ type: "error", msg: "Popup blocked. Allow popups for this site." });
-      return;
-    }
-    const baseUrl = window.location.origin;
-    const headerSrc    = `${baseUrl}${ent.headerImg}`;
-    const footerSrc    = `${baseUrl}${ent.footerImg}`;
-    const watermarkSrc = `${baseUrl}${ent.watermarkImg}`;
-    const stampSrc     = `${baseUrl}${ent.stampImg}`;
-    win.document.write(`<!DOCTYPE html>
-<html><head>
-<meta charset="UTF-8">
-<title>${ent.name} — Document</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700&family=Source+Serif+Pro:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-  @page { size: A4; margin: 0; }
-  body {
-    margin: 0;
-    font-family: 'Inter', -apple-system, Arial, sans-serif;
-    color: #1a1a1a;
-    background: #e5e7eb;
+    const res = openBrandedDoc(bodyHtml, ent, { addStamp: withStamp, autoPrint: true });
+    if (res && res.ok === false) setStatus({ type: "error", msg: res.error });
   }
-  .a4 {
-    width: 210mm; min-height: 297mm;
-    margin: 0 auto; position: relative;
-    background: white;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
-    page-break-after: always;
-  }
-  .lh-header img, .lh-footer img { width: 100%; display: block; }
-  .lh-header { position: absolute; top: 0; left: 0; right: 0; }
-  .lh-footer { position: absolute; bottom: 0; left: 0; right: 0; }
-  .lh-watermark {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    width: 140mm; opacity: 0.07;
-    pointer-events: none;
-  }
-  .lh-content {
-    padding: 50mm 18mm 35mm 18mm;
-    position: relative; z-index: 2;
-    font-size: 9.5pt;
-    line-height: 1.35;
-  }
-  /* ─── STYLE A — PHARMA CLASSIC ─────────────────────────────────────── */
-  .lh-content h1,
-  .lh-content h2,
-  .lh-content h3,
-  .lh-content .doc-title {
-    font-family: 'Source Serif Pro', Georgia, serif;
-    color: #0A2540;
-    margin: 0;
-    font-weight: 600;
-    letter-spacing: -0.005em;
-  }
-  .lh-content .doc-title,
-  .lh-content > h1:first-child,
-  .lh-content > h2:first-child {
-    font-size: 16pt;
-    text-align: center;
-    margin-bottom: 4px;
-  }
-  .lh-content h2 { font-size: 14pt; margin: 12px 0 6px; }
-  .lh-content h3 { font-size: 11pt; margin: 8px 0 4px; }
-  .lh-content .doc-ref,
-  .lh-content > p:first-of-type {
-    text-align: center;
-    font-size: 8.5pt;
-    color: #555;
-    margin-bottom: 14px;
-    font-family: 'Inter', sans-serif;
-    letter-spacing: 0.5px;
-  }
-  /* Section bands — Claude is instructed to emit h2.section */
-  .lh-content h2.section,
-  .lh-content .section {
-    font-family: 'Inter Tight', sans-serif;
-    font-size: 10pt;
-    font-weight: 600;
-    background: #F0F4F8;
-    color: #0A2540;
-    padding: 4px 10px;
-    margin: 12px 0 6px;
-    border-left: 3px solid #0A2540;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-  }
-  /* Tables */
-  .lh-content table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 9pt;
-    margin: 6px 0 10px;
-  }
-  .lh-content th {
-    background: #0A2540;
-    color: white;
-    padding: 5px 8px;
-    text-align: left;
-    font-weight: 600;
-    font-family: 'Inter Tight', sans-serif;
-    font-size: 8pt;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-    border: 1px solid #0A2540;
-  }
-  .lh-content td {
-    padding: 4px 8px;
-    border: 1px solid #D5DCE2;
-    vertical-align: top;
-  }
-  .lh-content tbody tr:nth-child(even) td { background: #F9FAFB; }
-  /* Emphasis */
-  .lh-content strong, .lh-content b { font-weight: 600; color: #0A2540; }
-  .lh-content em { font-style: italic; color: #555; }
-  .lh-content p { margin: 6px 0; }
-  /* Conclusion / approval callout */
-  .lh-content .conclusion,
-  .lh-content blockquote {
-    margin: 10px 0;
-    padding: 8px 12px;
-    background: #ECFDF5;
-    border-left: 3px solid #059669;
-    font-size: 9pt;
-    font-style: normal;
-  }
-  /* Lists */
-  .lh-content ul, .lh-content ol {
-    margin: 6px 0;
-    padding-left: 20px;
-    font-size: 9pt;
-  }
-  .lh-content li { margin: 2px 0; }
-  /* Stamp placement — uses <img> inside .stamp-placeholder so it survives print-to-PDF */
-  .stamp-placeholder {
-    display: block;
-    height: 130px;
-    margin-top: 24px;
-    position: relative;
-  }
-  .stamp-placeholder img,
-  .stamp-placeholder::after {
-    position: absolute;
-    right: 0; top: 0;
-    width: 230px; height: auto;
-    opacity: 0.85;
-    transform: rotate(-3deg);
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  /* Force browsers to print backgrounds + colors (critical for stamp + section bands + table headers) */
-  * {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    color-adjust: exact !important;
-  }
-  @media print {
-    body { background: white; }
-    .a4 { box-shadow: none; }
-  }
-</style>
-</head><body>
-<div class="a4">
-  <div class="lh-header"><img src="${headerSrc}"></div>
-  <img class="lh-watermark" src="${watermarkSrc}">
-  <div class="lh-content">${bodyHtml}</div>
-  <div class="lh-footer"><img src="${footerSrc}"></div>
-</div>
-<script>
-  // Inject real <img> stamps into any stamp-placeholder divs.
-  // CSS background-image is stripped when browsers print to PDF; <img> is preserved.
-  (function() {
-    var stamps = document.querySelectorAll('.stamp-placeholder');
-    for (var i = 0; i < stamps.length; i++) {
-      if (!stamps[i].querySelector('img')) {
-        var img = document.createElement('img');
-        img.src = '${stampSrc}';
-        img.alt = 'Verified Copy Stamp';
-        stamps[i].appendChild(img);
-      }
-    }
-    setTimeout(function() { window.print(); }, 1500);
-  })();
-<\/script>
-</body></html>`);
-    win.document.close();
-  }
+
   // ── UI ──────────────────────────────────────────────────────────────────
   const modeBtn = (id, label) => (
     <button onClick={() => { setMode(id); setStatus(null); }}
