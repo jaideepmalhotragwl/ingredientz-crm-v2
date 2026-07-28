@@ -8,6 +8,9 @@
 // (same engine as the reformatter). The stored page opens with a "Save as PDF"
 // button (window.print → A4). No html2canvas, no rasterisation, no dependency.
 //
+// The letterhead itself lives in src/lib/letterhead.js. This file only builds
+// the document body — do not put styling here.
+//
 // FIELD ASSUMPTIONS (adjust to your real `customers` / `suppliers` columns):
 //   customer.company, customer.country, customer.address, customer.city,
 //   customer.state, customer.postcode, customer.tax_id, customer.contact_person
@@ -18,6 +21,9 @@ import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhea
 import { fmtMoney, slugify } from "./orderUtils.js";
 import { fmtName } from "./nameFormat.js";
 import { supabase } from "../config.js";
+
+// Brand navy — keep in step with --inz-navy in letterheadPrintCss.js
+const NAVY = "#10314F";
 
 // ── small helpers ────────────────────────────────────────────────────────────
 function esc(s) {
@@ -78,7 +84,7 @@ const SUPPLIER_TERMS = [
 ];
 function termsBlock(heading, terms) {
   var items = terms.map(function (t) {
-    return `<p style="margin:3px 0;font-size:8pt;line-height:1.35;color:#333"><strong style="color:#0A2540">${t.n}. ${esc(t.title)}.</strong> ${esc(t.text)}</p>`;
+    return `<p style="margin:3px 0;font-size:8pt;line-height:1.35;color:#333"><strong style="color:${NAVY}">${t.n}. ${esc(t.title)}.</strong> ${esc(t.text)}</p>`;
   }).join("");
   return `<div style="page-break-before:always;padding-top:6px">
     <div class="doc-title" style="font-size:14pt;margin-bottom:8px">${esc(heading)}</div>
@@ -180,7 +186,15 @@ function withToolbar(fullHtml) {
 
 // ── Build a stored HTML File from a body + entity ────────────────────────────
 async function storeDoc(body, entity, prefix, fileName) {
-  const fullHtml = withToolbar(renderBrandedHtml(body, entity, { addStamp: true }));
+  let fullHtml;
+  try {
+    fullHtml = withToolbar(renderBrandedHtml(body, entity, { addStamp: true }));
+  } catch (e) {
+    // Entity has no letterhead configured — better to fail here than to store
+    // and send an unbranded document.
+    console.error("storeDoc render:", e);
+    return { error: e };
+  }
   const base = slugify(fileName.replace(/\.html$/i, ""));
   const path = `${prefix}/${Date.now()}-${base}.html`;
   const blob = new Blob([fullHtml], { type: "text/html; charset=utf-8" });
@@ -214,7 +228,12 @@ export async function generateSupplierPO({ order, po, poItems, supplier, entity:
 // ── PUBLIC: live view — renders the branded doc in a new tab (no storage, no
 // auto-print). The page carries a "Save as PDF" button. Always renders correctly.
 function openRenderedDoc(body, entity) {
-  const html = withToolbar(renderBrandedHtml(body, entity, { addStamp: true }));
+  let html;
+  try {
+    html = withToolbar(renderBrandedHtml(body, entity, { addStamp: true }));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
   const win = window.open("", "_blank");
   if (!win) return { ok: false, error: "Popup blocked. Allow popups for this site." };
   win.document.open(); win.document.write(html); win.document.close();
