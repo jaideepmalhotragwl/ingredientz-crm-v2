@@ -1,22 +1,26 @@
 /* ==========================================================================
    INGREDIENTZ — letterhead CSS as a JavaScript string
-   v1.0
+   v2.0
 
-   Why this file exists: the Documents module renders into a new window with
+   Why this file exists: the document renderer writes into a new window with
    document.write(). A CSS import can't reach that window, so the stylesheet
-   has to travel as a string and be written into the popup's <style> tag.
+   travels as a string and is written into the popup's <style> tag.
 
-   It is the same letterhead as letterhead.css, plus:
-     · .lh-dense  — tighter typography for technical documents (CoA, SDS, TDS)
-     · watermark and stamp support
-     · A4 print geometry
-     · LEGACY SELECTORS — plain <table>, .doc-title, .doc-ref, .section,
-       .conclusion, blockquote and .stamp-placeholder are all styled, so HTML
-       coming out of docTemplates.js and the reformat-document Edge Function
-       keeps working untouched. Do not remove these; nothing tells you they
-       broke except a customer receiving an unstyled CoA.
+   ── v2.0: HOW THE LETTERHEAD REPEATS ON EVERY PRINTED PAGE ──────────────────
+   The document is a single <table>. Its <thead> holds the logo and rules, its
+   <tfoot> holds the address block. Browsers repeat a table's header and footer
+   groups on every printed page, and @page reserves the margin they sit in.
 
-   If you change letterhead.css, mirror the change here.
+   Do NOT go back to `position: fixed` with negative offsets. Chrome clips
+   painting to the page content box, so a header at `top:-34mm` disappears
+   completely and a footer at `bottom:-20mm` prints across the body text.
+   The watermark stays fixed on purpose — it sits inside the content box, so
+   it is not clipped, and Chrome repeats it on every page.
+
+   LEGACY SELECTORS: plain <table>, .doc-title, .doc-ref, .section,
+   .conclusion, blockquote, .stamp-placeholder, .parties and .totals are all
+   styled, so HTML from docTemplates.js and the reformat-document Edge Function
+   keeps working untouched. Do not remove them.
    ========================================================================== */
 
 export const LETTERHEAD_CSS = `
@@ -31,14 +35,13 @@ export const LETTERHEAD_CSS = `
   --inz-serif:'Source Serif 4', Georgia, 'Times New Roman', serif;
   --inz-sans:'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
 
-  /* A4 geometry */
+  /* A4 geometry. These must match the @page margin at the end of the file —
+     @page cannot read CSS variables, so the numbers are written twice. */
   --inz-page-w:210mm;
   --inz-page-h:297mm;
   --inz-side:18mm;
   --inz-head-t:16mm;
   --inz-foot-b:14mm;
-  --inz-top:50mm;
-  --inz-bottom:34mm;
 }
 
 html,body{ margin:0; padding:0; }
@@ -51,29 +54,28 @@ body{ background:#e5e7eb; font-family:var(--inz-sans); color:var(--inz-ink); }
   min-height:var(--inz-page-h);
   margin:0 auto;
   background:#fff;
+  padding:var(--inz-head-t) var(--inz-side) var(--inz-foot-b);
+  box-sizing:border-box;
   font-size:11pt;
   line-height:1.62;
   -webkit-print-color-adjust:exact;
   print-color-adjust:exact;
 }
 
-/* ---------- header ---------- */
-.lh-header{
-  position:absolute;
-  top:var(--inz-head-t); left:var(--inz-side); right:var(--inz-side);
-  text-align:center;
-}
+.lh-grid{ width:100%; border-collapse:collapse; }
+.lh-grid > thead > tr > td,
+.lh-grid > tfoot > tr > td,
+.lh-grid > tbody > tr > td{ padding:0; border:0; }
+
+/* ---------- header (repeats on every printed page) ---------- */
+.lh-head-cell{ text-align:center; padding-bottom:10mm; }
 .lh-logo{ height:15mm; width:auto; display:inline-block; }
 .lh-rule{ height:3px; background:var(--inz-navy); }
 .lh-rule-thin{ height:1px; background:var(--inz-teal); margin-top:3px; }
-.lh-header .lh-rule{ margin-top:7.5mm; }
+.lh-head-cell .lh-rule{ margin-top:7.5mm; }
 
-/* ---------- footer ---------- */
-.lh-footer{
-  position:absolute;
-  bottom:var(--inz-foot-b); left:var(--inz-side); right:var(--inz-side);
-  text-align:center;
-}
+/* ---------- footer (repeats on every printed page) ---------- */
+.lh-foot-cell{ text-align:center; padding-top:8mm; vertical-align:bottom; }
 .lh-addr{
   font-family:var(--inz-serif);
   font-size:9pt; color:var(--inz-navy);
@@ -85,11 +87,12 @@ body{ background:#e5e7eb; font-family:var(--inz-sans); color:var(--inz-ink); }
 }
 .lh-sep{ color:var(--inz-teal); margin:0 9px; font-weight:600; }
 
-/* ---------- body ---------- */
-.lh-body{
-  padding:var(--inz-top) var(--inz-side) var(--inz-bottom);
-  position:relative; z-index:1;
-}
+/* ---------- body ----------
+   The height keeps the footer at the foot of the sheet on screen even when the
+   document is only a few lines long — on a table cell, height acts as a
+   minimum. It is released for print, where pagination handles it. */
+.lh-body-cell{ vertical-align:top; height:calc(var(--inz-page-h) - 90mm); }
+.lh-body{ position:relative; z-index:1; }
 
 /* ---------- watermark ---------- */
 .lh-watermark{
@@ -100,12 +103,12 @@ body{ background:#e5e7eb; font-family:var(--inz-sans); color:var(--inz-ink); }
 }
 
 /* ==========================================================================
-   DENSE MODE — technical documents
+   DENSE MODE — technical documents (CoA, SDS, TDS, spec)
    ========================================================================== */
 .lh-dense{ font-size:9.5pt; line-height:1.38; }
-.lh-dense p{ margin:5px 0; }
-.lh-dense ul,.lh-dense ol{ font-size:9pt; margin:5px 0; padding-left:18px; }
-.lh-dense li{ margin:2px 0; }
+.lh-dense .lh-body p{ margin:5px 0; }
+.lh-dense .lh-body ul,.lh-dense .lh-body ol{ font-size:9pt; margin:5px 0; padding-left:18px; }
+.lh-dense .lh-body li{ margin:2px 0; }
 
 /* document title + reference — new and legacy class names */
 .lh-body .lh-body-title,
@@ -127,10 +130,10 @@ body{ background:#e5e7eb; font-family:var(--inz-sans); color:var(--inz-ink); }
   font-family:var(--inz-serif); color:var(--inz-navy);
   font-weight:600; margin:0;
 }
-.lh-dense h2{ font-size:12pt; margin:12px 0 5px; }
-.lh-dense h3{ font-size:10pt; margin:9px 0 3px; }
+.lh-dense .lh-body h2{ font-size:12pt; margin:12px 0 5px; }
+.lh-dense .lh-body h3{ font-size:10pt; margin:9px 0 3px; }
 
-/* section band — legacy .section and h2.section both supported */
+/* section band */
 .lh-body .section,
 .lh-body h2.section{
   font-family:var(--inz-sans);
@@ -161,9 +164,7 @@ body{ background:#e5e7eb; font-family:var(--inz-sans); color:var(--inz-ink); }
 .lh-body tbody tr:nth-child(even) td{ background:var(--inz-tint); }
 .lh-body td.num,.lh-body th.num{ text-align:right; font-variant-numeric:tabular-nums; }
 
-/* ---- commercial-document blocks (invoice / PO) ----
-   docGen.js emits these. Without them the From/Bill-To block stacks into one
-   column and the totals table goes full width. */
+/* commercial-document blocks (invoice / PO) — emitted by docGen.js */
 .lh-body .parties{ display:flex; gap:18px; margin:10px 0; }
 .lh-body .party{ flex:1; font-size:8.8pt; line-height:1.45; }
 .lh-body .party .lbl{
@@ -217,30 +218,45 @@ body{ background:#e5e7eb; font-family:var(--inz-sans); color:var(--inz-ink); }
 
 /* ---------- screen preview ---------- */
 @media screen{
-  .lh-doc{ box-shadow:0 4px 24px rgba(0,0,0,.12); }
+  .lh-doc{ box-shadow:0 4px 24px rgba(0,0,0,.12); margin:20px auto; }
 }
 
 /* ==========================================================================
    PRINT / PDF
-   @page reserves header + footer space on EVERY page; the header, footer and
-   watermark are fixed, so browsers repeat them on each printed page.
-   These margins must match --inz-top / --inz-bottom / --inz-side above;
-   @page cannot read CSS variables.
+
+   @page reserves the margin on EVERY sheet; thead and tfoot repeat the
+   letterhead into it. These margins must match --inz-head-t / --inz-side /
+   --inz-foot-b above.
    ========================================================================== */
 @media print{
-  @page{ size:A4; margin:50mm 18mm 34mm; }
+  @page{ size:A4; margin:16mm 18mm 14mm; }
 
   html,body{ background:#fff; }
-  .lh-doc{ width:auto; min-height:0; box-shadow:none; margin:0; }
-  .lh-body{ padding:0; }
 
-  .lh-header   { position:fixed; top:-34mm;    left:0; right:0; }
-  .lh-footer   { position:fixed; bottom:-20mm; left:0; right:0; }
+  .lh-doc{
+    width:auto; min-height:0; margin:0;
+    padding:0; box-shadow:none;
+  }
+
+  thead{ display:table-header-group; }
+  tfoot{ display:table-footer-group; }
+
+  /* A minimum, not a fixed height: it pushes the footer to the foot of the
+     sheet on short documents, and is simply exceeded on longer ones.
+     Tuned against a rendered A4 sheet so the footer lands on the 14mm baseline. */
+  .lh-body-cell{ height:210mm; }
+
+  /* fixed is correct here: the watermark sits inside the page content box, so
+     it is not clipped, and it repeats on every page */
   .lh-watermark{ position:fixed; top:50%; left:50%; }
 
-  tr,img,.lh-callout,.conclusion,blockquote,
-  .lh-stamp,.stamp-placeholder{ page-break-inside:avoid; }
-  h1,h2,h3,.section{ page-break-after:avoid; }
+  /* Scope these to body content ONLY. Applying page-break-inside:avoid to a
+     a bare tr selector also hits the wrapper table's own header and footer rows, and
+     the engine then drops the letterhead from the page entirely. */
+  .lh-body tr,.lh-body img,
+  .lh-body .lh-callout,.lh-body .conclusion,.lh-body blockquote,
+  .lh-body .lh-stamp,.lh-body .stamp-placeholder{ page-break-inside:avoid; }
+  .lh-body h1,.lh-body h2,.lh-body h3,.lh-body .section{ page-break-after:avoid; }
 
   *{
     -webkit-print-color-adjust:exact !important;
