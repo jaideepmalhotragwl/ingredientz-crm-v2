@@ -4,7 +4,7 @@
 // DocumentsTab (reformat + generate), docGen.js (invoices, proforma, supplier
 // POs), and anything added later — renders through this file.
 //
-// v2.0 — now uses the shared Ingredientz letterhead:
+// v2.1 — shared Ingredientz letterhead, table-based pagination:
 //   · header and footer are TEXT drawn from the entity record, not PNG images,
 //     so the address is selectable and searchable in the PDF and a phone number
 //     changes in exactly one place
@@ -112,24 +112,38 @@ export function renderBrandedHtml(bodyHtml, entity, { addStamp = true } = {}) {
 <style>${LETTERHEAD_CSS}</style>
 </head><body>
 
-<div class="lh-doc lh-a4 lh-dense">
-
-  <header class="lh-header">
-    <img class="lh-logo" src="${entity.logo}" alt="${entity.name}">
-    <div class="lh-rule"></div>
-    <div class="lh-rule-thin"></div>
-  </header>
+<div class="lh-doc lh-dense">
 
   ${watermarkSrc ? `<img class="lh-watermark" src="${watermarkSrc}" alt="">` : ""}
 
-  <footer class="lh-footer">
-    <div class="lh-rule"></div>
-    <div class="lh-rule-thin"></div>
-    <div class="lh-addr">${entity.name}, ${entity.address}</div>
-    <div class="lh-contacts">${entity.email}<span class="lh-sep">&bull;</span>${entity.web}<span class="lh-sep">&bull;</span>${entity.phone}</div>
-  </footer>
+  <table class="lh-grid">
 
-  <main class="lh-body">${withStamps}</main>
+    <!-- HEADER — thead repeats on every printed page -->
+    <thead>
+      <tr><td class="lh-head-cell">
+        <img class="lh-logo" src="${entity.logo}" alt="${entity.name}">
+        <div class="lh-rule"></div>
+        <div class="lh-rule-thin"></div>
+      </td></tr>
+    </thead>
+
+    <!-- FOOTER — tfoot repeats on every printed page -->
+    <tfoot>
+      <tr><td class="lh-foot-cell">
+        <div class="lh-rule"></div>
+        <div class="lh-rule-thin"></div>
+        <div class="lh-addr">${entity.name}, ${entity.address}</div>
+        <div class="lh-contacts">${entity.email}<span class="lh-sep">&bull;</span>${entity.web}<span class="lh-sep">&bull;</span>${entity.phone}</div>
+      </td></tr>
+    </tfoot>
+
+    <tbody>
+      <tr><td class="lh-body-cell">
+        <div class="lh-body">${withStamps}</div>
+      </td></tr>
+    </tbody>
+
+  </table>
 
 </div>
 
@@ -148,19 +162,23 @@ export function renderCaptureHtml(bodyHtml, entity, { addStamp = true } = {}) {
 <style>${LETTERHEAD_CSS}
   .lh-doc{ width:794px; min-height:1123px; }
 </style></head><body>
-<div class="lh-doc lh-a4 lh-dense">
-  <header class="lh-header">
-    <img class="lh-logo" src="${logo}" alt="">
-    <div class="lh-rule"></div><div class="lh-rule-thin"></div>
-  </header>
-  <footer class="lh-footer">
-    <div class="lh-rule"></div><div class="lh-rule-thin"></div>
-    <div class="lh-addr">${entity.name}, ${entity.address}</div>
-    <div class="lh-contacts">${entity.email}<span class="lh-sep">&bull;</span>${entity.web}<span class="lh-sep">&bull;</span>${entity.phone}</div>
-  </footer>
-  <main class="lh-body">${bodyHtml}
-    ${addStamp && stampSrc ? `<div class="lh-stamp"><img src="${stampSrc}" alt=""></div>` : ""}
-  </main>
+<div class="lh-doc lh-dense">
+  <table class="lh-grid">
+    <thead><tr><td class="lh-head-cell">
+      <img class="lh-logo" src="${logo}" alt="">
+      <div class="lh-rule"></div><div class="lh-rule-thin"></div>
+    </td></tr></thead>
+    <tfoot><tr><td class="lh-foot-cell">
+      <div class="lh-rule"></div><div class="lh-rule-thin"></div>
+      <div class="lh-addr">${entity.name}, ${entity.address}</div>
+      <div class="lh-contacts">${entity.email}<span class="lh-sep">&bull;</span>${entity.web}<span class="lh-sep">&bull;</span>${entity.phone}</div>
+    </td></tr></tfoot>
+    <tbody><tr><td class="lh-body-cell">
+      <div class="lh-body">${bodyHtml}
+        ${addStamp && stampSrc ? `<div class="lh-stamp"><img src="${stampSrc}" alt=""></div>` : ""}
+      </div>
+    </td></tr></tbody>
+  </table>
 </div>
 </body></html>`;
 }
