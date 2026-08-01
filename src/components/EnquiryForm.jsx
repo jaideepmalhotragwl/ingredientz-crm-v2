@@ -76,14 +76,21 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
       created_by:form.assigned_to||"Jaideep",
     };
     // Auto-create any products not yet in DB
-    const { data: existingProducts } = await supabase.from("products").select("name");
+    // FIX: .select("name") with no limit hit Supabase's 1,000-row default cap.
+    // With 1,716 products roughly 700 were invisible and got re-inserted on
+    // every save — which is why "Vitamin C" exists five times.
+    const { data: existingProducts } = await supabase.from("products").select("name").limit(5000);
     const existingNames = new Set((existingProducts || []).map(p => p.name.toLowerCase().trim()));
     for (const p of row.products) {
       const trimmed = p.name?.trim();
       if (!trimmed) continue;
-      if (!existingNames.has(trimmed.toLowerCase())) {
-        const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now();
+      const key = trimmed.toLowerCase();
+      if (!existingNames.has(key)) {
+        const slug = key.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now();
         await supabase.from("products").insert({ name: trimmed, slug, unit: p.unit || "kg", status: "pending", created_by: row.assigned_to || "system" });
+        // FIX: the set was never updated inside the loop, so one enquiry
+        // listing the same product twice inserted it twice.
+        existingNames.add(key);
       }
     }
     // ── Feature #8: FY-quarter review tag (running ENQ id is kept separately) ──
@@ -211,14 +218,18 @@ function CustomerForm({onSave,onClose,initial=null}) {
   // Rehydrate the linked company from the snapshot columns when editing
   const [company,setCompany]=useState(()=>
     initial?.company_id ? {
-      id: initial.company_id,
-      name: initial.company,
-      company_type: initial.company_type,
-      country: initial.country,
-      domain: initial.company_domain,
-      website: initial.company_website,
+      id:            initial.company_id,
+      name:          initial.company,
+      company_type:  initial.company_type,
+      country:       initial.country,
+      city:          initial.company_city,
+      domain:        initial.company_domain,
+      website:       initial.company_website,
       ai_categories: initial.company_categories,
-      contact_count: 0,
+      ai_products:   initial.company_products,
+      ai_snippet:    initial.company_snippet,
+      ai_confidence: initial.company_confidence,
+      contact_count: initial.company_contact_count || 0,
     } : null
   );
   const [done,setDone]=useState(false);
@@ -239,12 +250,17 @@ function CustomerForm({onSave,onClose,initial=null}) {
     if(!form.company.trim()){alert("Company name required.");return;}
     const row = {
       ...form,
-      company_id:         company?.id || null,
-      company_type:       company?.company_type || null,
-      company_website:    company?.website || null,
-      company_domain:     company?.domain || null,
-      company_categories: company?.ai_categories || null,
-      company_synced_at:  company ? new Date().toISOString() : null,
+      company_id:            company?.id || null,
+      company_type:          company?.company_type || null,
+      company_website:       company?.website || null,
+      company_domain:        company?.domain || null,
+      company_city:          company?.city || null,
+      company_categories:    company?.ai_categories || null,
+      company_products:      company?.ai_products || null,
+      company_snippet:       company?.ai_snippet || null,
+      company_confidence:    company?.ai_confidence ?? null,
+      company_contact_count: company?.contact_count ?? null,
+      company_synced_at:     company ? new Date().toISOString() : null,
     };
     await onSave(row,initial?.id);
     setDone(true);
@@ -267,16 +283,6 @@ function CustomerForm({onSave,onClose,initial=null}) {
       selected={company}
     />
 
-    {company?.ai_categories?.length>0 && (
-      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-        {company.ai_categories.map(cat=>(
-          <span key={cat} style={{
-            fontSize:10,fontWeight:600,padding:"3px 9px",borderRadius:20,
-            background:C.blueLt||"#EFF6FF",color:C.blue,border:`1px solid #BFD6F6`,
-          }}>{cat}</span>
-        ))}
-      </div>
-    )}
 
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <FF label="Country" k="country" value={form.country} onChange={set} placeholder="e.g. France"/>
