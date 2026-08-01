@@ -5,6 +5,7 @@ import { reminderDate } from "../utils.js";
 import { FF, FTA } from "./ui/FormFields.jsx";
 import { Btn } from "./ui/Btn.jsx";
 import { ProductAutocomplete } from "./ProductAutocomplete.jsx";
+import { CompanyPicker } from "./CompanyPicker.jsx";
 // ── Reason the enquiry is being raised (required at creation). Edit freely. ──
 const ENQUIRY_REASONS = ["New requirement","Repeat / re-order","Sample request","Price / budgetary","Tender / RFQ","Referral","Other"];
 // ── Feature #8: Indian FY (Apr–Mar) quarter tag. Returns { fy:"2627", q:1, qStart, qEnd }. ──
@@ -189,14 +190,95 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
   </div>;
 }
 // ── CUSTOMER FORM ─────────────────────────────────────────────────────────────
+//
+// UPDATED — company lookup against the Sales CRM master (22,487 records).
+//
+// Flow:
+//   1. Type a company name → debounced search_companies() RPC on the Sales
+//      CRM project → ranked matches with match-quality badges
+//   2. Pick one → country, website, type and AI categories auto-fill
+//   3. Save writes company_id plus a snapshot of the enriched fields
+//   4. "None of these" keeps whatever was typed — manual entry still works,
+//      and works unchanged if the Sales CRM is unreachable
+//
+// Requires:
+//   · 007_customers_company_link.sql run on THIS project
+//   · 006_search_companies.sql run on the Sales CRM project
+//   · VITE_SALES_SUPABASE_URL and VITE_SALES_SUPABASE_ANON_KEY in Amplify
+//
 function CustomerForm({onSave,onClose,initial=null}) {
   const [form,setForm]=useState(initial||{company:"",country:"",contact:"",email:"",phone:"",notes:""});
+  // Rehydrate the linked company from the snapshot columns when editing
+  const [company,setCompany]=useState(()=>
+    initial?.company_id ? {
+      id: initial.company_id,
+      name: initial.company,
+      company_type: initial.company_type,
+      country: initial.country,
+      domain: initial.company_domain,
+      website: initial.company_website,
+      ai_categories: initial.company_categories,
+      contact_count: 0,
+    } : null
+  );
   const [done,setDone]=useState(false);
   function set(k,v){setForm(f=>({...f,[k]:v}));}
-  async function save(){if(!form.company.trim()){alert("Company name required.");return;}await onSave(form,initial?.id);setDone(true);setTimeout(()=>{setDone(false);if(!initial)setForm({company:"",country:"",contact:"",email:"",phone:"",notes:""});},1200);if(initial)onClose();}
+
+  // Company picked — fill what we know, never overwrite what the user typed
+  function onPickCompany(co){
+    setCompany(co);
+    setForm(f=>({
+      ...f,
+      company: co.name,
+      country: f.country?.trim() ? f.country : (co.country || ""),
+    }));
+  }
+  function onClearCompany(){ setCompany(null); }
+
+  async function save(){
+    if(!form.company.trim()){alert("Company name required.");return;}
+    const row = {
+      ...form,
+      company_id:         company?.id || null,
+      company_type:       company?.company_type || null,
+      company_website:    company?.website || null,
+      company_domain:     company?.domain || null,
+      company_categories: company?.ai_categories || null,
+      company_synced_at:  company ? new Date().toISOString() : null,
+    };
+    await onSave(row,initial?.id);
+    setDone(true);
+    setTimeout(()=>{
+      setDone(false);
+      if(!initial){
+        setForm({company:"",country:"",contact:"",email:"",phone:"",notes:""});
+        setCompany(null);
+      }
+    },1200);
+    if(initial)onClose();
+  }
+
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
+    <CompanyPicker
+      value={form.company}
+      onChange={v=>{ set("company",v); if(company) setCompany(null); }}
+      onSelect={onPickCompany}
+      onClear={onClearCompany}
+      selected={company}
+    />
+
+    {company?.ai_categories?.length>0 && (
+      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+        {company.ai_categories.map(cat=>(
+          <span key={cat} style={{
+            fontSize:10,fontWeight:600,padding:"3px 9px",borderRadius:20,
+            background:C.blueLt||"#EFF6FF",color:C.blue,border:`1px solid #BFD6F6`,
+          }}>{cat}</span>
+        ))}
+      </div>
+    )}
+
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-      <FF label="Company Name *" k="company" value={form.company} onChange={set} placeholder="e.g. Nexira SAS"/>
       <FF label="Country" k="country" value={form.country} onChange={set} placeholder="e.g. France"/>
       <FF label="Primary Contact" k="contact" value={form.contact} onChange={set} placeholder="Full name"/>
       <FF label="Email" k="email" value={form.email} onChange={set} type="email" placeholder="procurement@company.com"/>
