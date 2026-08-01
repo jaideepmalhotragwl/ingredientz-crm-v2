@@ -214,7 +214,14 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
 //   · VITE_SALES_SUPABASE_URL and VITE_SALES_SUPABASE_ANON_KEY in Amplify
 //
 function CustomerForm({onSave,onClose,initial=null}) {
-  const [form,setForm]=useState(initial||{company:"",country:"",contact:"",email:"",phone:"",notes:""});
+  const [form,setForm]=useState(()=>({
+    company: initial?.company || "",
+    country: initial?.country || "",
+    contact: initial?.contact || "",
+    email:   initial?.email   || "",
+    phone:   initial?.phone   || "",
+    notes:   initial?.notes   || "",
+  }));
   // Rehydrate the linked company from the snapshot columns when editing
   const [company,setCompany]=useState(()=>
     initial?.company_id ? {
@@ -248,8 +255,18 @@ function CustomerForm({onSave,onClose,initial=null}) {
 
   async function save(){
     if(!form.company.trim()){alert("Company name required.");return;}
+    // BUG FIX (428C9): this used to spread ...form. On edit, `form` is seeded
+    // from `initial`, so it carried `id` and `created_at` into the payload.
+    // Postgres rejects an UPDATE touching an identity column:
+    //   "Column \"id\" is an identity column defined as GENERATED ALWAYS."
+    // Every Edit → Save on a customer was failing silently. Build explicitly.
     const row = {
-      ...form,
+      company:               form.company,
+      country:               form.country || null,
+      contact:               form.contact || null,
+      email:                 form.email   || null,
+      phone:                 form.phone   || null,
+      notes:                 form.notes   || null,
       company_id:            company?.id || null,
       company_type:          company?.company_type || null,
       company_website:       company?.website || null,
@@ -296,10 +313,31 @@ function CustomerForm({onSave,onClose,initial=null}) {
 }
 // ── USER FORM ─────────────────────────────────────────────────────────────────
 function UserForm({onSave,onClose,initial=null}) {
-  const [form,setForm]=useState(initial||{name:"",email:"",role:"Sales",sender_email:"sales@mail.ingredientz.co",active:true});
+  // Same 428C9 fix as CustomerForm — seed only the editable fields so `id`
+  // and `created_at` never reach the UPDATE payload.
+  const [form,setForm]=useState(()=>({
+    name:         initial?.name         || "",
+    email:        initial?.email        || "",
+    role:         initial?.role         || "Sales",
+    sender_email: initial?.sender_email || "sales@mail.ingredientz.co",
+    active:       initial?.active !== undefined ? initial.active : true,
+  }));
   const [done,setDone]=useState(false);
   function set(k,v){setForm(f=>({...f,[k]:v}));}
-  async function save(){if(!form.name.trim()||!form.email.trim()){alert("Name and email required.");return;}await onSave(form,initial?.id);setDone(true);setTimeout(()=>setDone(false),1200);if(initial)onClose();}
+  async function save(){
+    if(!form.name.trim()||!form.email.trim()){alert("Name and email required.");return;}
+    const row = {
+      name:         form.name,
+      email:        form.email,
+      role:         form.role,
+      sender_email: form.sender_email,
+      active:       form.active,
+    };
+    await onSave(row,initial?.id);
+    setDone(true);
+    setTimeout(()=>setDone(false),1200);
+    if(initial)onClose();
+  }
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <FF label="Full Name *" k="name" value={form.name} onChange={set} placeholder="e.g. Param Sharma"/>
