@@ -27,7 +27,7 @@ const STAGE_STAMP = {
   "Customer Received":      "customer_received_at",
   "Feedback":               "feedback_at"
 };
-export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose, onAdvance, onUpdate, onChase, onResend, onAssignSupplier, onOpenSample }) {
+export function SampleDrawer({ sample, suppliers = [], allSamples = [], enquiries = [], onClose, onAdvance, onUpdate, onChase, onResend, onSendRequest, onToggleFollowups, onAssignSupplier, onOpenSample, onOpenEnquiry }) {
   const [tracking, setTracking] = useState("");
   const [feedbackNotes, setFeedbackNotes] = useState("");
   const [assignSupplierId, setAssignSupplierId] = useState("");
@@ -45,12 +45,23 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
     (sample.stage === "Feedback" && sample.feedback_result ? sample.feedback_result : (sample.stage || "Requested"));
   const supplierLoopActive = ["Requested", "Supplier Shipped"].includes(sample.stage);
   const customerLoopActive = ["Dispatched to Customer", "Customer Received"].includes(sample.stage);
+  const requestSent = !!sample.request_sent_at;
+  const paused = !!sample.followups_paused;
+  // The enquiry this sample came from (if it was raised from one)
+  const parentEnq = sample.enquiry_id
+    ? (enquiries || []).find(e => String(e.id) === String(sample.enquiry_id)) || null
+    : null;
   // sibling products under the same enquiry
-  const siblings = (allSamples || []).filter(s => sample.enquiry_no && s.enquiry_no === sample.enquiry_no && s.id !== sample.id);
+  const siblings = (allSamples || []).filter(s =>
+    ((sample.enquiry_id && String(s.enquiry_id) === String(sample.enquiry_id)) ||
+     (!sample.enquiry_id && sample.enquiry_no && s.enquiry_no === sample.enquiry_no))
+    && s.id !== sample.id);
 
   async function advance(toStage, extra = {}) { setBusy(true); await onAdvance(sample, toStage, extra); setTracking(""); setBusy(false); }
   async function recordFeedback(result) { setBusy(true); await onAdvance(sample, "Feedback", { feedback_result: result, feedback_notes: feedbackNotes }); setBusy(false); }
   async function chase(who) { setBusy(true); await onChase(sample, who); setBusy(false); }
+  async function sendRequest() { setBusy(true); await (onSendRequest || onResend)(sample); setBusy(false); }
+  async function toggleFollowups() { setBusy(true); await onToggleFollowups(sample); setBusy(false); }
   async function assign() {
     const sup = activeSuppliers.find(s => String(s.id) === String(assignSupplierId));
     if (!sup) { alert("Pick a supplier."); return; }
@@ -81,9 +92,16 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
     const stage = sample.stage;
     if (stage === "Requested") {
       return (
-        <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input style={{ ...inp, width: 170 }} placeholder="Tracking # (optional)" value={tracking} onChange={e => setTracking(e.target.value)} />
-          <button style={btnPrimary} disabled={busy} onClick={() => advance("Supplier Shipped", { supplier_tracking: tracking })}>Mark supplier shipped →</button>
+        <div style={{ marginTop: 8 }}>
+          {!requestSent && (
+            <div style={{ fontSize: 12, color: C.amber, fontWeight: 600, marginBottom: 8 }}>
+              ⚠ The request email hasn't been sent yet — send it below before chasing.
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input style={{ ...inp, width: 170 }} placeholder="Tracking # (optional)" value={tracking} onChange={e => setTracking(e.target.value)} />
+            <button style={btnPrimary} disabled={busy} onClick={() => advance("Supplier Shipped", { supplier_tracking: tracking })}>Mark supplier shipped →</button>
+          </div>
         </div>
       );
     }
@@ -116,13 +134,28 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
         {/* Header */}
         <div style={header}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: C.ink }}>{sample.sample_number}</span>
               <span style={pill(headColor)}>{headLabel}</span>
+              {!awaiting && (requestSent
+                ? <span style={pill(C.green)}>request sent</span>
+                : <span style={pill(C.amber)}>request not sent</span>)}
+              {paused && <span style={pill(C.muted)}>🔕 follow-ups off</span>}
             </div>
             <div style={{ fontSize: 16, fontWeight: 600, color: C.ink }}>{sample.product_name}{sample.quantity ? <span style={{ color: C.muted, fontWeight: 400, fontSize: 13 }}> · {sample.quantity} {sample.unit || ""}</span> : null}</div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-              {sample.enquiry_no ? <span>Enquiry <b>{sample.enquiry_no}</b> · </span> : null}Created {fmtDate(sample.created_at)}
+              {sample.enquiry_no ? (
+                <span>
+                  {parentEnq && onOpenEnquiry
+                    ? <button onClick={() => onOpenEnquiry(parentEnq)} title="Open the enquiry"
+                        style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.blue, fontWeight: 700, fontFamily: "monospace", fontSize: 12 }}>
+                        {sample.enquiry_no}
+                      </button>
+                    : <b>{sample.enquiry_no}</b>}
+                  {" · "}
+                </span>
+              ) : null}
+              Created {fmtDate(sample.created_at)}
             </div>
           </div>
           <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 16, color: C.muted, cursor: "pointer" }}>✕</button>
@@ -147,15 +180,17 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
           {/* Assign supplier (when awaiting) */}
           {awaiting && (
             <div style={{ ...card, border: `1px solid ${C.blue}55` }}>
-              <div style={sectionTitle}>Assign supplier &amp; send request</div>
+              <div style={sectionTitle}>Assign supplier</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <select style={{ ...inp, minWidth: 240 }} value={assignSupplierId} onChange={e => setAssignSupplierId(e.target.value)}>
                   <option value="">Select supplier…</option>
                   {activeSuppliers.map(s => <option key={s.id} value={String(s.id)}>{fmtName(s.company)}{s.country ? ` (${s.country})` : ""}</option>)}
                 </select>
-                <button style={btnPrimary} disabled={busy || !assignSupplierId} onClick={assign}>Assign &amp; send request →</button>
+                <button style={btnPrimary} disabled={busy || !assignSupplierId} onClick={assign}>Assign supplier →</button>
               </div>
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>This sends the sample request to the supplier and moves this product to <b>Requested</b>.</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>
+                This records the supplier and moves the product to <b>Requested</b>. <b>No email goes out</b> — you'll send the request yourself from the card below.
+              </div>
             </div>
           )}
 
@@ -180,6 +215,35 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
               { text: sample.purpose ? `For: ${sample.purpose}` : "—", muted: true }
             ]} />
           </div>
+
+          {/* ── Sample-request email — MANUAL ───────────────────────────────── */}
+          {!awaiting && (
+            <div style={{ ...card, border: requestSent ? `1px solid ${C.border}` : `1px solid ${C.amber}66` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                <div style={{ ...sectionTitle, margin: 0 }}>
+                  Sample-request email ·{" "}
+                  {requestSent
+                    ? <span style={{ color: C.green, textTransform: "none", letterSpacing: 0 }}>sent {fmtDate(sample.request_sent_at)}</span>
+                    : <span style={{ color: C.amber, textTransform: "none", letterSpacing: 0 }}>not sent yet</span>}
+                </div>
+                {requestSent
+                  ? <button style={btnGhost} disabled={busy} onClick={sendRequest}>Resend request</button>
+                  : <button style={{ ...btnPrimary, background: "#8E44AD", padding: "8px 16px", fontWeight: 700 }} disabled={busy} onClick={sendRequest}>
+                      📨 Send request to supplier
+                    </button>}
+              </div>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>To: {sample.supplier_email || "—"} · From: procurement@mail.ingredientz.co</div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Sample request — {sample.product_name}{sample.quantity ? ` (${sample.quantity} ${sample.unit || ""})` : ""} [{sample.sample_number}]</div>
+              <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.55, borderLeft: `2px solid ${C.border}`, paddingLeft: 12 }}>
+                We'd like to request a sample of {sample.product_name} for a customer evaluation. Please confirm availability, lead time and share the CoA, and we'll coordinate shipment to our warehouse.
+              </div>
+              {!sample.supplier_email && (
+                <div style={{ fontSize: 11, color: C.red, marginTop: 8, fontWeight: 600 }}>
+                  This supplier has no email on file — add one in Suppliers before sending.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Journey */}
           <div style={card}>
@@ -215,33 +279,47 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
             {awaiting && <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic", marginTop: 4 }}>Assign a supplier above to start the journey.</div>}
           </div>
 
-          {/* Follow-ups */}
+          {/* ── Follow-ups — reminders only, never auto-sent ─────────────────── */}
           {!awaiting && (
             <div style={card}>
-              <div style={sectionTitle}>Auto follow-ups</div>
-              <FollowupLoop title="Supplier chase" active={supplierLoopActive}
-                closed={["Received at Warehouse", "Dispatched to Customer", "Customer Received", "Feedback"].includes(sample.stage)}
-                activeText={`Chasing the supplier until the sample reaches our warehouse.${sample.next_followup_at ? ` Next due ${fmtDate(sample.next_followup_at)}.` : ""}${sample.followup_count ? ` ${sample.followup_count} sent so far.` : ""}`}
-                closedText="Sample reached our warehouse — supplier loop closed." onChase={() => chase("supplier")} busy={busy} C={C} />
-              <FollowupLoop title="Customer chase" active={customerLoopActive} closed={sample.stage === "Feedback"}
-                activeText={`Chasing the customer for feedback.${sample.next_followup_at ? ` Next due ${fmtDate(sample.next_followup_at)}.` : ""}`}
-                pendingText="Starts once the sample is dispatched to the customer."
-                closedText="Feedback received — customer loop closed." onChase={() => chase("customer")} busy={busy} C={C} />
-            </div>
-          )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                <div style={{ ...sectionTitle, margin: 0 }}>Follow-ups</div>
+                <button
+                  onClick={toggleFollowups}
+                  disabled={busy}
+                  style={{
+                    background: paused ? C.blueLt : "transparent",
+                    color: paused ? C.blue : C.red,
+                    border: `1px solid ${paused ? "#BFD6F6" : C.red + "55"}`,
+                    borderRadius: 8, padding: "7px 13px", fontSize: 12, fontWeight: 700,
+                    cursor: busy ? "not-allowed" : "pointer"
+                  }}>
+                  {paused ? "🔔 Resume follow-ups" : "🔕 Stop follow-ups"}
+                </button>
+              </div>
 
-          {/* Request email */}
-          {!awaiting && (
-            <div style={card}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ ...sectionTitle, margin: 0 }}>Sample-request email</div>
-                <button style={btnGhost} disabled={busy} onClick={() => onResend(sample)}>Resend request</button>
+              <div style={{ fontSize: 11, color: C.muted, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", marginBottom: 12, lineHeight: 1.5 }}>
+                Nothing is emailed automatically. The dates below are <b>due-date reminders only</b> — a chase goes out only when you press the button.
               </div>
-              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>To: {sample.supplier_email || "—"} · From: procurement@mail.ingredientz.co</div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Sample request — {sample.product_name}{sample.quantity ? ` (${sample.quantity} ${sample.unit || ""})` : ""} [{sample.sample_number}]</div>
-              <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.55, borderLeft: `2px solid ${C.border}`, paddingLeft: 12 }}>
-                We'd like to request a sample of {sample.product_name} for a customer evaluation. Please confirm availability, lead time and share the CoA, and we'll coordinate shipment to our warehouse.
-              </div>
+
+              {paused ? (
+                <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic" }}>
+                  Follow-ups are switched off for {sample.sample_number}. No reminders will be raised until you resume them.
+                </div>
+              ) : (
+                <>
+                  <FollowupLoop title="Supplier chase" active={supplierLoopActive}
+                    closed={["Received at Warehouse", "Dispatched to Customer", "Customer Received", "Feedback"].includes(sample.stage)}
+                    activeText={`${requestSent ? "" : "Send the request first. "}${sample.next_followup_at ? `Next chase due ${fmtDate(sample.next_followup_at)}.` : "No chase scheduled."}${sample.followup_count ? ` ${sample.followup_count} sent so far.` : ""}`}
+                    closedText="Sample reached our warehouse — supplier loop closed."
+                    onChase={() => chase("supplier")} busy={busy || !requestSent} C={C} />
+                  <FollowupLoop title="Customer chase" active={customerLoopActive} closed={sample.stage === "Feedback"}
+                    activeText={`${sample.next_followup_at ? `Next chase due ${fmtDate(sample.next_followup_at)}.` : "No chase scheduled."}`}
+                    pendingText="Starts once the sample is dispatched to the customer."
+                    closedText="Feedback received — customer loop closed."
+                    onChase={() => chase("customer")} busy={busy} C={C} />
+                </>
+              )}
             </div>
           )}
         </div>
@@ -250,7 +328,7 @@ export function SampleDrawer({ sample, suppliers = [], allSamples = [], onClose,
   );
 }
 function FollowupLoop({ title, active, closed, activeText, pendingText, closedText, onChase, busy, C }) {
-  const status = closed ? "closed" : active ? "active" : "pending";
+  const status = closed ? "closed" : active ? "open" : "pending";
   const color = closed ? C.green : active ? C.amber : C.muted;
   const text = closed ? closedText : active ? activeText : (pendingText || "");
   return (
@@ -260,7 +338,7 @@ function FollowupLoop({ title, active, closed, activeText, pendingText, closedTe
           {title}
           <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, fontWeight: 600, background: `${color}22`, color }}>{status}</span>
         </div>
-        {active && <button onClick={onChase} disabled={busy} style={{ background: C.blue, color: "white", border: 0, borderRadius: 7, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>📨 Send chase now</button>}
+        {active && <button onClick={onChase} disabled={busy} style={{ background: busy ? C.faded : C.blue, color: "white", border: 0, borderRadius: 7, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>📨 Send chase now</button>}
       </div>
       {text && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{text}</div>}
     </div>
