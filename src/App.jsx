@@ -13,6 +13,7 @@ import { OrderDrawer }     from "./components/OrderDrawer.jsx";
 import { SamplesTab }      from "./components/SamplesTab.jsx";
 import { SampleForm }      from "./components/SampleForm.jsx";
 import { SampleDrawer }    from "./components/SampleDrawer.jsx";
+import { SampleFromEnquiry } from "./components/SampleFromEnquiry.jsx";   // ── Enquiry → Sample linkage ──
 import { RemindersTab }    from "./components/RemindersTab.jsx";
 import { CustomersTab }    from "./components/CustomersTab.jsx";
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -28,6 +29,11 @@ import { MarketSignals }   from "./components/MarketSignals.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
 import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
+
+// ── The enquiry stage that triggers the sample-details modal ──────────────────
+const SAMPLE_TRIGGER_STAGE = "Sample Under Process";
+const FOLLOWUP_GAP_MS = 3 * 86400000;   // 3 days — a due-date nudge only, never auto-sends
+
 export default function App() {
   const [loading, setLoading]       = useState(true);
   const [toast, setToast]           = useState(null);
@@ -54,6 +60,7 @@ export default function App() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [sampleFormOpen, setSampleFormOpen] = useState(false);
   const [selectedSample, setSelectedSample] = useState(null);
+  const [sampleFromEnq, setSampleFromEnq] = useState(null);   // ── enquiry awaiting sample details ──
   const [pendingApprovals, setPendingApprovals] = useState(0);
   async function refreshPendingApprovals() {
     const [sup, prod] = await Promise.all([
@@ -192,6 +199,13 @@ export default function App() {
           text: `Stage updated: ${enq.customer_name} → ${stage}`
         });
       }
+      // ── Enquiry → Sample linkage ──
+      // Stage is already saved above, so cancelling the modal costs nothing.
+      // Works from BOTH the list dropdown and the drawer buttons, because both
+      // route through this one function.
+      if (stage === SAMPLE_TRIGGER_STAGE) {
+        setSampleFromEnq({ ...enq, stage });
+      }
     }
   }
   // ── Task ops ─────────────────────────────────────────────────────────────────
@@ -308,7 +322,11 @@ export default function App() {
     const data = await dbInsert("email_threads", row);
     if (data) { setThreads(p => [data, ...p]); showToast("✓ Email logged"); }
   }
-  // ── SAMPLE OPS ─────────────────────────────────────────────────────────────
+  // ══ SAMPLE OPS ══════════════════════════════════════════════════════════════
+  // RULE: creating a sample NEVER sends an email. The supplier request goes out
+  // only when someone presses "Send request to supplier" in the sample drawer.
+  // The follow-up clock only starts once that request has actually been sent.
+
   async function addSample(row) {
     const sample_number = `SR-${Date.now().toString().slice(-6)}`;
     const seed = {
@@ -316,15 +334,16 @@ export default function App() {
       sample_number,
       stage: "Requested",
       requested_at: new Date().toISOString(),
-      followup_loop: "supplier",
-      next_followup_at: new Date(Date.now() + 3 * 86400000).toISOString(),
+      request_sent_at: null,        // ── manual: nothing sent yet ──
+      followup_loop: null,          // ── clock starts on send, not on create ──
+      next_followup_at: null,
+      followups_paused: false,
       followup_count: 0
     };
     const data = await dbInsert("samples", seed);
     if (!data) { showToast("✗ Failed to create sample", true); return null; }
     setSamples(p => [data, ...p]);
-    showToast(`✓ Sample ${sample_number} created`);
-    await sendSampleRequest(data);
+    showToast(`✓ Sample ${sample_number} created — request not sent yet`);
     return data;
   }
   // ── Multi-product customer sample enquiry: one row per product, shared enquiry_no.
@@ -336,6 +355,7 @@ export default function App() {
       const hasSupplier = !!(p.supplier_id && p.supplier_email);
       const seed = {
         enquiry_no,
+        enquiry_id: null,
         sample_number: `SR-${(Date.now() + i).toString().slice(-6)}`,
         customer_id: payload.customer_id,
         customer_name: payload.customer_name,
@@ -353,15 +373,14 @@ export default function App() {
         notes: payload.enquiry_notes || null,
         stage: hasSupplier ? "Requested" : "Awaiting Supplier",
         requested_at: hasSupplier ? new Date().toISOString() : null,
-        followup_loop: hasSupplier ? "supplier" : null,
-        next_followup_at: hasSupplier ? new Date(Date.now() + 3 * 86400000).toISOString() : null,
+        request_sent_at: null,
+        followup_loop: null,
+        next_followup_at: null,
+        followups_paused: false,
         followup_count: 0
       };
       const data = await dbInsert("samples", seed);
-      if (data) {
-        created.push(data);
-        if (hasSupplier) await sendSampleRequest(data);
-      }
+      if (data) created.push(data);
     }
     if (created.length) {
       setSamples(p => [...created, ...p]);
@@ -371,7 +390,53 @@ export default function App() {
     }
     return created;
   }
-  // Assign a supplier to an awaiting sample, send the request, move to Requested.
+  // ── Enquiry → Sample linkage ──
+  // Same shape as above, but hard-linked to the enquiry via enquiry_id and
+  // labelled ENQ-123 so both pages point at each other.
+  async function addSamplesFromEnquiry(payload) {
+    const created = [];
+    for (let i = 0; i < payload.products.length; i++) {
+      const p = payload.products[i];
+      const hasSupplier = !!(p.supplier_id && p.supplier_email);
+      const seed = {
+        enquiry_id: payload.enquiry_id,
+        enquiry_no: payload.enquiry_no,
+        sample_number: `SR-${(Date.now() + i).toString().slice(-6)}`,
+        customer_id: payload.customer_id,
+        customer_name: payload.customer_name,
+        customer_contact: payload.customer_contact,
+        customer_email: payload.customer_email,
+        customer_country: payload.customer_country,
+        supplier_id: p.supplier_id || null,
+        supplier_name: p.supplier_name || null,
+        supplier_contact: p.supplier_contact || null,
+        supplier_email: p.supplier_email || null,
+        product_name: p.product_name,
+        quantity: p.quantity,
+        unit: p.unit,
+        purpose: p.purpose,
+        notes: payload.enquiry_notes || null,
+        stage: hasSupplier ? "Requested" : "Awaiting Supplier",
+        requested_at: hasSupplier ? new Date().toISOString() : null,
+        request_sent_at: null,
+        followup_loop: null,
+        next_followup_at: null,
+        followups_paused: false,
+        followup_count: 0
+      };
+      const data = await dbInsert("samples", seed);
+      if (data) created.push(data);
+    }
+    if (created.length) {
+      setSamples(p => [...created, ...p]);
+      showToast(`✓ ${created.length} sample${created.length > 1 ? "s" : ""} linked to ${payload.enquiry_no}`);
+    } else {
+      showToast("✗ Could not create samples", true);
+    }
+    return created;
+  }
+  // Assign a supplier to an awaiting sample. Records it only — the request email
+  // is a separate, deliberate press in the drawer.
   async function assignSampleSupplier(sample, supplier) {
     if (!supplier) { showToast("Pick a supplier", true); return; }
     const patch = {
@@ -380,24 +445,21 @@ export default function App() {
       supplier_contact: supplier.contact_name || "",
       supplier_email: supplier.contact_email || supplier.email || "",
       stage: "Requested",
-      requested_at: new Date().toISOString(),
-      followup_loop: "supplier",
-      next_followup_at: new Date(Date.now() + 3 * 86400000).toISOString(),
-      followup_count: 0
+      requested_at: new Date().toISOString()
     };
     await updateSample(sample.id, patch);
-    const updated = { ...sample, ...patch };
-    if (updated.supplier_email) await sendSampleRequest(updated);
-    else showToast("⚠ Supplier has no email — request not sent", true);
+    showToast(`✓ ${supplier.company} assigned — press Send request when ready`);
   }
-  // Fires the sample-request email to the supplier (same engine as the RFQ alert)
+  // ── MANUAL: fires the sample-request email to the supplier, stamps the send,
+  //    and only then starts the follow-up due-date clock.
   async function sendSampleRequest(sample) {
-    if (!sample?.supplier_email) { showToast("⚠ Sample saved — supplier has no email", true); return; }
+    if (!sample?.supplier_email) { showToast("⚠ Supplier has no email on file", true); return; }
     const lines = [
       `We'd like to request a sample for a customer evaluation.`,
       `<b>Product:</b> ${sample.product_name}`,
       `<b>Quantity:</b> ${sample.quantity || "—"} ${sample.unit || ""}`,
       sample.purpose ? `<b>Purpose:</b> ${sample.purpose}` : null,
+      sample.notes ? `<b>Notes:</b> ${sample.notes}` : null,
       `<b>Ship to:</b> Ingredientz warehouse (address to follow on confirmation).`,
       `Please confirm availability, lead time and share the CoA. Reply here and we'll coordinate shipment.`
     ].filter(Boolean);
@@ -410,28 +472,50 @@ export default function App() {
       reply_to: "procurement@ingredientz.co",
       bcc: ["sales@ingredientz.co", "procurement@ingredientz.co"]
     });
-    showToast(res?.id ? `✓ Sample request sent to ${sample.supplier_name}` : `✓ Sample request sent`);
+    const now = new Date().toISOString();
+    const patch = {
+      request_sent_at: now,
+      requested_at: sample.requested_at || now,
+      stage: sample.stage === "Awaiting Supplier" ? "Requested" : sample.stage
+    };
+    if (!sample.followups_paused) {
+      patch.followup_loop = "supplier";
+      patch.next_followup_at = new Date(Date.now() + FOLLOWUP_GAP_MS).toISOString();
+    }
+    await updateSample(sample.id, patch);
+    showToast(res?.id ? `✓ Request sent to ${sample.supplier_name || "supplier"}` : `✓ Request sent`);
+  }
+  // ── Stop / resume follow-ups for one sample ──
+  async function toggleSampleFollowups(sample) {
+    const paused = !sample.followups_paused;
+    await updateSample(sample.id, {
+      followups_paused: paused,
+      followup_loop: paused ? null : (sample.followup_loop || "supplier"),
+      next_followup_at: paused ? null : new Date(Date.now() + FOLLOWUP_GAP_MS).toISOString()
+    });
+    showToast(paused ? `🔕 Follow-ups stopped for ${sample.sample_number}` : `🔔 Follow-ups resumed`);
   }
   async function updateSample(id, patch) {
     await dbUpdate("samples", id, { ...patch, updated_at: new Date().toISOString() });
     setSamples(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
     if (selectedSample?.id === id) setSelectedSample(s => ({ ...s, ...patch }));
   }
-  // Advance to a stage, stamping the right timestamp + setting the follow-up loop
+  // Advance to a stage, stamping the right timestamp + setting the follow-up loop.
+  // A paused sample never gets a new due date.
   async function advanceSample(sample, toStage, extra = {}) {
     const now = new Date().toISOString();
-    const in3 = new Date(Date.now() + 3 * 86400000).toISOString();
+    const due = sample.followups_paused ? null : new Date(Date.now() + FOLLOWUP_GAP_MS).toISOString();
     const stamp = {
       "Supplier Shipped":       { supplier_shipped_at: now },
       "Received at Warehouse":  { received_warehouse_at: now, followup_loop: null, next_followup_at: null },
-      "Dispatched to Customer": { dispatched_customer_at: now, followup_loop: "customer", next_followup_at: in3, followup_count: 0 },
+      "Dispatched to Customer": { dispatched_customer_at: now, followup_loop: sample.followups_paused ? null : "customer", next_followup_at: due, followup_count: 0 },
       "Customer Received":      { customer_received_at: now },
       "Feedback":               { feedback_at: now, followup_loop: null, next_followup_at: null }
     }[toStage] || {};
     await updateSample(sample.id, { stage: toStage, ...stamp, ...extra });
     showToast(`✓ ${sample.sample_number} → ${toStage}`);
   }
-  // Manual chase — sends immediately and bumps the schedule
+  // Manual chase — sends immediately and pushes the next due date out
   async function sendSampleChase(sample, who) {
     const to = who === "supplier" ? sample.supplier_email : sample.customer_email;
     const name = who === "supplier" ? sample.supplier_name : sample.customer_name;
@@ -455,7 +539,7 @@ export default function App() {
     await updateSample(sample.id, {
       followup_count: count,
       last_followup_at: new Date().toISOString(),
-      next_followup_at: new Date(Date.now() + (count >= 2 ? 7 : 3) * 86400000).toISOString()
+      next_followup_at: sample.followups_paused ? null : new Date(Date.now() + (count >= 2 ? 7 : 3) * 86400000).toISOString()
     });
     showToast(res?.id ? `✓ Chase sent to ${name}` : `✓ Chase sent`);
   }
@@ -711,6 +795,8 @@ export default function App() {
     const d = daysUntil(e.reminder_date);
     return d !== null && d <= 0 && !["PO Received", "Lost"].includes(e.stage);
   }).length;
+  // ── Samples badge: supplier requests logged but never sent ──
+  const unsentSampleCount = samples.filter(s => s.supplier_id && !s.request_sent_at).length;
   // ── Team Desk: count reps who haven't filed today's Daily MIS (drives the tab badge) ──
   const todayStr = new Date().toISOString().slice(0, 10);
   const reportedTodaySet = new Set(
@@ -723,7 +809,7 @@ export default function App() {
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
     { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
-    { id: "samples",    label: "Samples",    icon: "🧫", badge: 0 },
+    { id: "samples",    label: "Samples",    icon: "🧫", badge: unsentSampleCount },
     { id: "reminders",  label: "Reminders",  icon: "🔔", badge: overdueReminderCount },
     { id: "customers",  label: "Customers",  icon: "🏢", badge: 0 },
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
@@ -739,6 +825,10 @@ export default function App() {
     { id: "teamdesk",   label: "Team Tracker", icon: "🎯", badge: missingReportCount },   // ── Team Tracker (replaces Team Activity) ──
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
   ];
+  // Samples that belong to the enquiry currently open in the drawer
+  const enqSamples = selectedEnq
+    ? samples.filter(s => String(s.enquiry_id) === String(selectedEnq.id))
+    : [];
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Arial,sans-serif" }}>
       {toast && (
@@ -808,7 +898,7 @@ export default function App() {
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} orders={orders} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} quotations={quotations} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
         {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} />}
-        {activeTab === "samples"    && <SamplesTab samples={samples} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} />}
+        {activeTab === "samples"    && <SamplesTab samples={samples} enquiries={enquiries} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} onOpenEnquiry={enq => { setSelectedEnq(enq); setActiveTab("enquiries"); }} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
@@ -833,6 +923,9 @@ export default function App() {
         users={users}
         quotations={quotations}
         threads={threads}
+        samples={enqSamples}
+        onAddSample={() => selectedEnq && setSampleFromEnq(selectedEnq)}
+        onOpenSample={s => { setSelectedSample(s); setActiveTab("samples"); }}
         onSaveQuotation={saveQuotation}
         onSendQuotationEmail={sendQuotationEmail}
         onLogEmail={logEmail}
@@ -880,18 +973,30 @@ export default function App() {
           onSave={addSampleEnquiry}
         />
       )}
+      {sampleFromEnq && (
+        <SampleFromEnquiry
+          enq={sampleFromEnq}
+          suppliers={suppliers}
+          onClose={() => setSampleFromEnq(null)}
+          onSave={addSamplesFromEnquiry}
+        />
+      )}
       {selectedSample && (
         <SampleDrawer
           sample={selectedSample}
           suppliers={suppliers}
           allSamples={samples}
+          enquiries={enquiries}
           onClose={() => setSelectedSample(null)}
           onAdvance={advanceSample}
           onUpdate={updateSample}
           onChase={sendSampleChase}
+          onSendRequest={sendSampleRequest}
           onResend={sendSampleRequest}
+          onToggleFollowups={toggleSampleFollowups}
           onAssignSupplier={assignSampleSupplier}
           onOpenSample={s => setSelectedSample(s)}
+          onOpenEnquiry={enq => { setSelectedSample(null); setSelectedEnq(enq); setActiveTab("enquiries"); }}
         />
       )}
       <style>{`
