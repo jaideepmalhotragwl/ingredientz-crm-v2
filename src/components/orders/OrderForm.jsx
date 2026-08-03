@@ -9,6 +9,10 @@ import {
   calcOrderTotal
 } from "../../lib/orderUtils.js";
 
+// ── Alphabetical company sort, case- and accent-insensitive. ──
+const byCompany = (a, b) =>
+  (a.company || "").localeCompare(b.company || "", undefined, { sensitivity: "base", numeric: true });
+
 const blankLine = () => ({
   product_id: null,
   product_name: "",
@@ -66,8 +70,20 @@ export function OrderForm({ customers, enquiries, onClose, onSave }) {
     dbGet("products").then(setProducts);
   }, []);
 
+  // Alphabetical customer list — at 265+ companies an unsorted dropdown is unusable.
+  const sortedCustomers = useMemo(
+    () => (customers || []).slice().sort(byCompany),
+    [customers]
+  );
+
+  // Eligible enquiries, sorted by customer name so they're findable.
   const eligibleEnquiries = useMemo(() => {
-    return (enquiries || []).filter(e => e.stage === "PO Received");
+    return (enquiries || [])
+      .filter(e => e.stage === "PO Received")
+      .slice()
+      .sort((a, b) =>
+        (a.customer_name || "").localeCompare(b.customer_name || "", undefined, { sensitivity: "base", numeric: true })
+        || (a.id - b.id));
   }, [enquiries]);
 
   const selectedEnquiry = useMemo(() => {
@@ -91,6 +107,13 @@ export function OrderForm({ customers, enquiries, onClose, onSave }) {
       };
     });
   }, [selectedEnquiry, products]);
+
+  // Catalog products, alphabetical.
+  const sortedProducts = useMemo(
+    () => (products || []).slice().sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true })),
+    [products]
+  );
 
   function handleEnquirySelect(id) {
     setEnquiryId(id);
@@ -129,10 +152,10 @@ export function OrderForm({ customers, enquiries, onClose, onSave }) {
         short_description: ep.short_description
       }));
     }
-    // Direct: full catalog + "type new"
+    // Direct: full catalog (alphabetical) + "type new"
     return [
       { value: "__new__", label: "— Type a new product name —", isNew: true },
-      ...products.map(p => ({
+      ...sortedProducts.map(p => ({
         value: `cat-${p.id}`,
         label: p.name,
         product_id: p.id,
@@ -281,7 +304,7 @@ export function OrderForm({ customers, enquiries, onClose, onSave }) {
                   <option value="">Select enquiry (showing PO Received only)…</option>
                   {eligibleEnquiries.map(e => (
                     <option key={e.id} value={e.id}>
-                      #{e.id} — {e.customer_name} ({e.country || "—"}) — {Array.isArray(e.products) ? e.products.length : 0} items
+                      {e.customer_name} ({e.country || "—"}) — ENQ-{e.id} — {Array.isArray(e.products) ? e.products.length : 0} items
                     </option>
                   ))}
                 </select>
@@ -300,13 +323,13 @@ export function OrderForm({ customers, enquiries, onClose, onSave }) {
           </div>
 
           <div style={{ marginBottom: 18 }}>
-            <div style={sectionTitle}>Customer & PO</div>
+            <div style={sectionTitle}>Customer &amp; PO</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label style={label}>Customer<span style={required}>*</span></label>
                 <select style={input} value={customerId} onChange={e => setCustomerId(e.target.value)}>
                   <option value="">Select customer…</option>
-                  {customers.map(c => (
+                  {sortedCustomers.map(c => (
                     <option key={c.id} value={c.id}>{c.company} {c.country ? `(${c.country})` : ""}</option>
                   ))}
                 </select>
