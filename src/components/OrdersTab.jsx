@@ -19,15 +19,22 @@ function toUSD(amount, currency) {
 // Owner of the order. NOTE: created_by is a bigint user id, not a name —
 // it must NOT be used as a display fallback or you get a number in the cell.
 const ownerOf = o => (o.owner || o.assigned_to || "").trim();
+const EMPTY_FILTERS = {
+  order_number: "", customer: "", owner: "All", po_number: "",
+  po_from: "", po_to: "", value_min: "", value_max: "",
+  source: "All", status: "All"
+};
 export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUpdateOrder }) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [customerFilter, setCustomerFilter] = useState("All");
-  const [sourceFilter, setSourceFilter] = useState("All");
-  const [ownerFilter, setOwnerFilter] = useState("All");
+  const [f, setF] = useState({ ...EMPTY_FILTERS });
   const [showArchived, setShowArchived] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [sort, setSort] = useState({ k: "customer_po_date", d: -1 });  // default: newest PO first
+  function setFilter(k, v) { setF(prev => ({ ...prev, [k]: v })); }
+  const activeFilterCount = useMemo(
+    () => Object.keys(EMPTY_FILTERS).filter(k => f[k] !== EMPTY_FILTERS[k]).length,
+    [f]
+  );
   // Archived orders are hidden everywhere unless explicitly shown.
   const liveOrders = useMemo(
     () => orders.filter(o => showArchived ? !!o.archived_at : !o.archived_at),
@@ -43,6 +50,11 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
       .slice().sort((a, b) => a.name.localeCompare(b.name)),
     [users]
   );
+  // Owner strings already on orders that aren't in the users list (legacy spellings)
+  const legacyOwners = useMemo(() => {
+    const known = new Set(activeUsers.map(u => u.name));
+    return [...new Set(orders.map(ownerOf).filter(n => n && !known.has(n)))].sort();
+  }, [orders, activeUsers]);
   // ── Metrics (archived excluded) ───────────────────────────────────────────
   const metrics = useMemo(() => {
     const live = orders.filter(o => !o.archived_at);
@@ -66,27 +78,44 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
   const curBreakdown = Object.entries(metrics.byCur)
     .map(([c, v]) => `${c} ${Math.round(v).toLocaleString()}`)
     .join("  ·  ");
+  function getCustomerName(id) {
+    return customers.find(c => c.id === id)?.company || "—";
+  }
   // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
+    const has = (hay, needle) => String(hay || "").toLowerCase().includes(needle.toLowerCase().trim());
     const rows = liveOrders.filter(o => {
-      if (statusFilter !== "All" && o.status !== statusFilter) return false;
-      if (sourceFilter !== "All" && o.source !== sourceFilter.toLowerCase()) return false;
-      if (customerFilter !== "All" && String(o.customer_id) !== String(customerFilter)) return false;
-      if (ownerFilter === "(unassigned)" && ownerOf(o)) return false;
-      if (ownerFilter !== "All" && ownerFilter !== "(unassigned)" && ownerOf(o) !== ownerFilter) return false;
+      // per-column filters
+      if (f.order_number && !has(o.order_number, f.order_number)) return false;
+      if (f.customer && !has(getCustomerName(o.customer_id), f.customer)) return false;
+      if (f.po_number && !has(o.customer_po_number, f.po_number)) return false;
+      if (f.owner === "(none)" && ownerOf(o)) return false;
+      if (f.owner !== "All" && f.owner !== "(none)" && ownerOf(o) !== f.owner) return false;
+      if (f.status !== "All" && o.status !== f.status) return false;
+      if (f.source !== "All" && o.source !== f.source) return false;
+      if (f.po_from || f.po_to) {
+        const d = o.customer_po_date ? String(o.customer_po_date).split("T")[0] : "";
+        if (!d) return false;                       // no PO date = excluded once a range is set
+        if (f.po_from && d < f.po_from) return false;
+        if (f.po_to   && d > f.po_to)   return false;
+      }
+      if (f.value_min || f.value_max) {
+        const v = toUSD(o.total_amount, o.currency);
+        if (f.value_min && v < parseFloat(f.value_min)) return false;
+        if (f.value_max && v > parseFloat(f.value_max)) return false;
+      }
+      // global search box
       if (search) {
         const s = search.toLowerCase();
-        const cust = customers.find(c => c.id === o.customer_id);
-        const hay = `${o.order_number} ${o.customer_po_number || ""} ${cust?.company || ""} ${o.job_name || ""} ${ownerOf(o)}`.toLowerCase();
+        const hay = `${o.order_number} ${o.customer_po_number || ""} ${getCustomerName(o.customer_id)} ${o.job_name || ""} ${ownerOf(o)}`.toLowerCase();
         if (!hay.includes(s)) return false;
       }
       return true;
     });
-    const cust = id => customers.find(c => c.id === id)?.company || "";
     return rows.sort((a, b) => {
       let va, vb;
       if (sort.k === "value") { va = toUSD(a.total_amount, a.currency); vb = toUSD(b.total_amount, b.currency); }
-      else if (sort.k === "customer") { va = cust(a.customer_id); vb = cust(b.customer_id); }
+      else if (sort.k === "customer") { va = getCustomerName(a.customer_id); vb = getCustomerName(b.customer_id); }
       else if (sort.k === "owner") { va = ownerOf(a); vb = ownerOf(b); }
       else { va = a[sort.k] ?? ""; vb = b[sort.k] ?? ""; }
       if (typeof va === "number") return (va - vb) * sort.d;
@@ -95,11 +124,13 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
       if (va && !vb) return -1;
       return String(va).localeCompare(String(vb)) * sort.d;
     });
-  }, [liveOrders, search, statusFilter, customerFilter, sourceFilter, ownerFilter, customers, sort]);
+  }, [liveOrders, search, f, customers, sort]);
+  // Value of what's currently on screen — useful when filtering by rep or period.
+  const filteredUSD = useMemo(
+    () => filtered.reduce((s, o) => s + toUSD(o.total_amount, o.currency), 0),
+    [filtered]
+  );
   function toggleSort(k) { setSort(s => s.k === k ? { k, d: s.d * -1 } : { k, d: -1 }); }
-  function getCustomerName(id) {
-    return customers.find(c => c.id === id)?.company || "—";
-  }
   // Inline owner save — writes the exact users.name string, so no Sid/Sidd drift.
   async function setOwner(order, name) {
     if (!onUpdateOrder) return;
@@ -110,13 +141,8 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
   // ── Styles ────────────────────────────────────────────────────────────────
   const card = { background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 16 };
   const inputStyle = {
-    padding: "8px 12px",
-    border: `1px solid ${C.border}`,
-    borderRadius: 8,
-    fontSize: 13,
-    fontFamily: "inherit",
-    background: C.white,
-    color: C.ink
+    padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8,
+    fontSize: 13, fontFamily: "inherit", background: C.white, color: C.ink
   };
   const btnPrimary = {
     background: C.blue, color: "white", border: 0,
@@ -126,6 +152,14 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
   const pill = (color) => ({
     fontSize: 11, padding: "3px 9px", borderRadius: 99, fontWeight: 600,
     background: `${color}22`, color: color, display: "inline-block"
+  });
+  // compact controls used inside the filter row
+  const fInp = (active) => ({
+    width: "100%", boxSizing: "border-box",
+    padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
+    border: `1px solid ${active ? C.blue : C.border}`,
+    background: active ? C.blueLt : C.white,
+    color: C.ink, borderRadius: 5, outline: "none"
   });
   return (
     <div>
@@ -153,39 +187,28 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
       {!showArchived && unattributedCount > 0 && (
         <div style={{ background: "#FFF8E7", border: `1px solid #FFE0A3`, borderRadius: 9, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#8a5a00", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span><b>{unattributedCount}</b> order{unattributedCount === 1 ? " has" : "s have"} no owner — set one in the Owner column to keep rep reporting accurate.</span>
-          <button onClick={() => setOwnerFilter(ownerFilter === "(unassigned)" ? "All" : "(unassigned)")}
+          <button onClick={() => setFilter("owner", f.owner === "(none)" ? "All" : "(none)")}
             style={{ background: "transparent", border: `1px solid #E0B25A`, borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: "#8a5a00", cursor: "pointer", whiteSpace: "nowrap" }}>
-            {ownerFilter === "(unassigned)" ? "Show all" : "Show only these"}
+            {f.owner === "(none)" ? "Show all" : "Show only these"}
           </button>
         </div>
       )}
 
-      {/* Toolbar */}
+      {/* Toolbar — per-column filters live in the table header below */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         <input
           style={{ ...inputStyle, flex: 1, minWidth: 200 }}
-          placeholder="Search by order #, customer, PO #, owner..."
+          placeholder="Search across order #, customer, PO #, job, owner..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <select style={inputStyle} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option>All</option>
-          {ORDER_STATUSES.map(s => <option key={s}>{s}</option>)}
-        </select>
-        <select style={inputStyle} value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}>
-          <option value="All">All owners</option>
-          <option value="(unassigned)">— no owner —</option>
-          {activeUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-        </select>
-        <select style={inputStyle} value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}>
-          <option value="All">All customers</option>
-          {customers.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
-        </select>
-        <select style={inputStyle} value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
-          <option>All</option>
-          <option value="enquiry">From enquiry</option>
-          <option value="direct">Direct</option>
-        </select>
+        {(activeFilterCount > 0 || search) && (
+          <button
+            onClick={() => { setF({ ...EMPTY_FILTERS }); setSearch(""); }}
+            style={{ ...inputStyle, cursor: "pointer", fontWeight: 700, color: C.red, borderColor: `${C.red}55` }}>
+            ✕ Clear {activeFilterCount + (search ? 1 : 0)} filter{activeFilterCount + (search ? 1 : 0) === 1 ? "" : "s"}
+          </button>
+        )}
         <button
           onClick={() => setShowArchived(v => !v)}
           title="Archived orders are hidden from all totals"
@@ -201,15 +224,7 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
 
       {/* Table */}
       <div style={{ ...card, padding: 0, overflow: "hidden" }}>
-        {filtered.length === 0 ? (
-          <div style={{ padding: 40, textAlign: "center", color: C.muted, fontSize: 13 }}>
-            {showArchived
-              ? "No archived orders."
-              : orders.length === 0
-                ? "No orders yet. Click + New order to add your first PO."
-                : "No orders match the current filters."}
-          </div>
-        ) : (
+        <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.bg }}>
@@ -224,9 +239,69 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
                 <ThSort k="status" label="Status" sort={sort} onSort={toggleSort} />
                 <ThSort k="updated_at" label="Updated" sort={sort} onSort={toggleSort} />
               </tr>
+              {/* ── Filter row ── */}
+              <tr style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+                <Fd />
+                <Fd>
+                  <input style={fInp(!!f.order_number)} placeholder="0034"
+                    value={f.order_number} onChange={e => setFilter("order_number", e.target.value)} />
+                </Fd>
+                <Fd>
+                  <input style={fInp(!!f.customer)} placeholder="company…"
+                    value={f.customer} onChange={e => setFilter("customer", e.target.value)} />
+                </Fd>
+                <Fd>
+                  <select style={fInp(f.owner !== "All")} value={f.owner} onChange={e => setFilter("owner", e.target.value)}>
+                    <option value="All">all</option>
+                    <option value="(none)">— no owner —</option>
+                    {activeUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                    {legacyOwners.map(n => <option key={n} value={n}>{n} (legacy)</option>)}
+                  </select>
+                </Fd>
+                <Fd>
+                  <input style={fInp(!!f.po_number)} placeholder="PO #"
+                    value={f.po_number} onChange={e => setFilter("po_number", e.target.value)} />
+                </Fd>
+                <Fd>
+                  <input type="date" title="PO date from" style={{ ...fInp(!!f.po_from), marginBottom: 3 }}
+                    value={f.po_from} onChange={e => setFilter("po_from", e.target.value)} />
+                  <input type="date" title="PO date to" style={fInp(!!f.po_to)}
+                    value={f.po_to} onChange={e => setFilter("po_to", e.target.value)} />
+                </Fd>
+                <Fd>
+                  <input style={{ ...fInp(!!f.value_min), marginBottom: 3 }} placeholder="min $"
+                    value={f.value_min} onChange={e => setFilter("value_min", e.target.value)} />
+                  <input style={fInp(!!f.value_max)} placeholder="max $"
+                    value={f.value_max} onChange={e => setFilter("value_max", e.target.value)} />
+                </Fd>
+                <Fd>
+                  <select style={fInp(f.source !== "All")} value={f.source} onChange={e => setFilter("source", e.target.value)}>
+                    <option value="All">all</option>
+                    <option value="enquiry">From enquiry</option>
+                    <option value="direct">Direct</option>
+                  </select>
+                </Fd>
+                <Fd>
+                  <select style={fInp(f.status !== "All")} value={f.status} onChange={e => setFilter("status", e.target.value)}>
+                    <option value="All">all</option>
+                    {ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </Fd>
+                <Fd />
+              </tr>
             </thead>
             <tbody>
-              {filtered.map((o, i) => {
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={10} style={{ padding: 40, textAlign: "center", color: C.muted, fontSize: 13 }}>
+                    {showArchived
+                      ? "No archived orders match."
+                      : orders.length === 0
+                        ? "No orders yet. Click + New order to add your first PO."
+                        : "No orders match the current filters."}
+                  </td>
+                </tr>
+              ) : filtered.map((o, i) => {
                 const owner = ownerOf(o);
                 return (
                   <tr
@@ -260,7 +335,6 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
                           }}>
                           <option value="">— set owner —</option>
                           {activeUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                          {/* keep a legacy value visible if it isn't in the users list */}
                           {owner && !activeUsers.some(u => u.name === owner) &&
                             <option value={owner}>{owner} (legacy)</option>}
                         </select>
@@ -283,10 +357,11 @@ export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUp
               })}
             </tbody>
           </table>
-        )}
+        </div>
       </div>
       <div style={{ fontSize: 11, color: C.muted, marginTop: 10, textAlign: "right" }}>
         Showing {filtered.length} of {liveOrders.length} {showArchived ? "archived" : "active"} orders
+        {filtered.length > 0 && <> · <b style={{ color: C.ink }}>{converted ? "≈ " : ""}{fmtMoneyShort(filteredUSD)}</b> on screen</>}
         {!showArchived && archivedCount > 0 && ` · ${archivedCount} archived`}
       </div>
     </div>
@@ -322,6 +397,10 @@ function ThSort({ k, label, sort, onSort }) {
       {label}{active ? (sort.d === 1 ? " ↑" : " ↓") : ""}
     </th>
   );
+}
+// Filter-row cell
+function Fd({ children }) {
+  return <th style={{ padding: "4px 8px 8px", verticalAlign: "top", minWidth: 90 }}>{children}</th>;
 }
 function Td({ children, style = {} }) {
   return <td style={{ padding: "12px 14px", ...style }}>{children}</td>;
