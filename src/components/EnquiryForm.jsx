@@ -5,9 +5,12 @@ import { reminderDate } from "../utils.js";
 import { FF, FTA } from "./ui/FormFields.jsx";
 import { Btn } from "./ui/Btn.jsx";
 import { ProductAutocomplete } from "./ProductAutocomplete.jsx";
-import { CompanyPicker } from "./CompanyPicker.jsx";
 // ── Reason the enquiry is being raised (required at creation). Edit freely. ──
 const ENQUIRY_REASONS = ["New requirement","Repeat / re-order","Sample request","Price / budgetary","Tender / RFQ","Referral","Other"];
+// ── Alphabetical company sort, case- and accent-insensitive. ──
+// Used for every customer picker so the list is scannable at 265+ companies.
+const byCompany = (a, b) =>
+  (a.company || "").localeCompare(b.company || "", undefined, { sensitivity: "base", numeric: true });
 // ── Feature #8: Indian FY (Apr–Mar) quarter tag. Returns { fy:"2627", q:1, qStart, qEnd }. ──
 function fyQuarter(dateStr) {
   const d = dateStr ? new Date(dateStr) : new Date();
@@ -76,21 +79,14 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
       created_by:form.assigned_to||"Jaideep",
     };
     // Auto-create any products not yet in DB
-    // FIX: .select("name") with no limit hit Supabase's 1,000-row default cap.
-    // With 1,716 products roughly 700 were invisible and got re-inserted on
-    // every save — which is why "Vitamin C" exists five times.
-    const { data: existingProducts } = await supabase.from("products").select("name").limit(5000);
+    const { data: existingProducts } = await supabase.from("products").select("name");
     const existingNames = new Set((existingProducts || []).map(p => p.name.toLowerCase().trim()));
     for (const p of row.products) {
       const trimmed = p.name?.trim();
       if (!trimmed) continue;
-      const key = trimmed.toLowerCase();
-      if (!existingNames.has(key)) {
-        const slug = key.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now();
+      if (!existingNames.has(trimmed.toLowerCase())) {
+        const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now();
         await supabase.from("products").insert({ name: trimmed, slug, unit: p.unit || "kg", status: "pending", created_by: row.assigned_to || "system" });
-        // FIX: the set was never updated inside the loop, so one enquiry
-        // listing the same product twice inserted it twice.
-        existingNames.add(key);
       }
     }
     // ── Feature #8: FY-quarter review tag (running ENQ id is kept separately) ──
@@ -112,8 +108,11 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
     setTimeout(()=>{setDone(false);setSaving(false);if(!initial)setForm(EMPTY_ENQ);},1200);
     if(initial)onClose();
   }
-  const custOpts=customers.map(c=>({v:String(c.id),l:c.company}));
-  const userOpts=users.filter(u=>u.active).map(u=>({v:u.name,l:u.name}));
+  // ── Alphabetical, so a 265-company list is actually scannable ──
+  const custOpts=(customers||[]).slice().sort(byCompany).map(c=>({v:String(c.id),l:c.company}));
+  const userOpts=(users||[]).filter(u=>u.active)
+    .slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"",undefined,{sensitivity:"base"}))
+    .map(u=>({v:u.name,l:u.name}));
   const inp={background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 10px",color:C.ink,fontFamily:"Arial,sans-serif",fontSize:13,outline:"none"};
   return <div style={{display:"flex",flexDirection:"column",gap:18}}>
     <div>
@@ -197,111 +196,14 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
   </div>;
 }
 // ── CUSTOMER FORM ─────────────────────────────────────────────────────────────
-//
-// UPDATED — company lookup against the Sales CRM master (22,487 records).
-//
-// Flow:
-//   1. Type a company name → debounced search_companies() RPC on the Sales
-//      CRM project → ranked matches with match-quality badges
-//   2. Pick one → country, website, type and AI categories auto-fill
-//   3. Save writes company_id plus a snapshot of the enriched fields
-//   4. "None of these" keeps whatever was typed — manual entry still works,
-//      and works unchanged if the Sales CRM is unreachable
-//
-// Requires:
-//   · 007_customers_company_link.sql run on THIS project
-//   · 006_search_companies.sql run on the Sales CRM project
-//   · VITE_SALES_SUPABASE_URL and VITE_SALES_SUPABASE_ANON_KEY in Amplify
-//
 function CustomerForm({onSave,onClose,initial=null}) {
-  const [form,setForm]=useState(()=>({
-    company: initial?.company || "",
-    country: initial?.country || "",
-    contact: initial?.contact || "",
-    email:   initial?.email   || "",
-    phone:   initial?.phone   || "",
-    notes:   initial?.notes   || "",
-  }));
-  // Rehydrate the linked company from the snapshot columns when editing
-  const [company,setCompany]=useState(()=>
-    initial?.company_id ? {
-      id:            initial.company_id,
-      name:          initial.company,
-      company_type:  initial.company_type,
-      country:       initial.country,
-      city:          initial.company_city,
-      domain:        initial.company_domain,
-      website:       initial.company_website,
-      ai_categories: initial.company_categories,
-      ai_products:   initial.company_products,
-      ai_snippet:    initial.company_snippet,
-      ai_confidence: initial.company_confidence,
-      contact_count: initial.company_contact_count || 0,
-    } : null
-  );
+  const [form,setForm]=useState(initial||{company:"",country:"",contact:"",email:"",phone:"",notes:""});
   const [done,setDone]=useState(false);
   function set(k,v){setForm(f=>({...f,[k]:v}));}
-
-  // Company picked — fill what we know, never overwrite what the user typed
-  function onPickCompany(co){
-    setCompany(co);
-    setForm(f=>({
-      ...f,
-      company: co.name,
-      country: f.country?.trim() ? f.country : (co.country || ""),
-    }));
-  }
-  function onClearCompany(){ setCompany(null); }
-
-  async function save(){
-    if(!form.company.trim()){alert("Company name required.");return;}
-    // BUG FIX (428C9): this used to spread ...form. On edit, `form` is seeded
-    // from `initial`, so it carried `id` and `created_at` into the payload.
-    // Postgres rejects an UPDATE touching an identity column:
-    //   "Column \"id\" is an identity column defined as GENERATED ALWAYS."
-    // Every Edit → Save on a customer was failing silently. Build explicitly.
-    const row = {
-      company:               form.company,
-      country:               form.country || null,
-      contact:               form.contact || null,
-      email:                 form.email   || null,
-      phone:                 form.phone   || null,
-      notes:                 form.notes   || null,
-      company_id:            company?.id || null,
-      company_type:          company?.company_type || null,
-      company_website:       company?.website || null,
-      company_domain:        company?.domain || null,
-      company_city:          company?.city || null,
-      company_categories:    company?.ai_categories || null,
-      company_products:      company?.ai_products || null,
-      company_snippet:       company?.ai_snippet || null,
-      company_confidence:    company?.ai_confidence ?? null,
-      company_contact_count: company?.contact_count ?? null,
-      company_synced_at:     company ? new Date().toISOString() : null,
-    };
-    await onSave(row,initial?.id);
-    setDone(true);
-    setTimeout(()=>{
-      setDone(false);
-      if(!initial){
-        setForm({company:"",country:"",contact:"",email:"",phone:"",notes:""});
-        setCompany(null);
-      }
-    },1200);
-    if(initial)onClose();
-  }
-
+  async function save(){if(!form.company.trim()){alert("Company name required.");return;}await onSave(form,initial?.id);setDone(true);setTimeout(()=>{setDone(false);if(!initial)setForm({company:"",country:"",contact:"",email:"",phone:"",notes:""});},1200);if(initial)onClose();}
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
-    <CompanyPicker
-      value={form.company}
-      onChange={v=>{ set("company",v); if(company) setCompany(null); }}
-      onSelect={onPickCompany}
-      onClear={onClearCompany}
-      selected={company}
-    />
-
-
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <FF label="Company Name *" k="company" value={form.company} onChange={set} placeholder="e.g. Nexira SAS"/>
       <FF label="Country" k="country" value={form.country} onChange={set} placeholder="e.g. France"/>
       <FF label="Primary Contact" k="contact" value={form.contact} onChange={set} placeholder="Full name"/>
       <FF label="Email" k="email" value={form.email} onChange={set} type="email" placeholder="procurement@company.com"/>
@@ -313,31 +215,10 @@ function CustomerForm({onSave,onClose,initial=null}) {
 }
 // ── USER FORM ─────────────────────────────────────────────────────────────────
 function UserForm({onSave,onClose,initial=null}) {
-  // Same 428C9 fix as CustomerForm — seed only the editable fields so `id`
-  // and `created_at` never reach the UPDATE payload.
-  const [form,setForm]=useState(()=>({
-    name:         initial?.name         || "",
-    email:        initial?.email        || "",
-    role:         initial?.role         || "Sales",
-    sender_email: initial?.sender_email || "sales@mail.ingredientz.co",
-    active:       initial?.active !== undefined ? initial.active : true,
-  }));
+  const [form,setForm]=useState(initial||{name:"",email:"",role:"Sales",sender_email:"sales@mail.ingredientz.co",active:true});
   const [done,setDone]=useState(false);
   function set(k,v){setForm(f=>({...f,[k]:v}));}
-  async function save(){
-    if(!form.name.trim()||!form.email.trim()){alert("Name and email required.");return;}
-    const row = {
-      name:         form.name,
-      email:        form.email,
-      role:         form.role,
-      sender_email: form.sender_email,
-      active:       form.active,
-    };
-    await onSave(row,initial?.id);
-    setDone(true);
-    setTimeout(()=>setDone(false),1200);
-    if(initial)onClose();
-  }
+  async function save(){if(!form.name.trim()||!form.email.trim()){alert("Name and email required.");return;}await onSave(form,initial?.id);setDone(true);setTimeout(()=>setDone(false),1200);if(initial)onClose();}
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <FF label="Full Name *" k="name" value={form.name} onChange={set} placeholder="e.g. Param Sharma"/>
