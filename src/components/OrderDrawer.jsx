@@ -29,8 +29,8 @@ const TABS = [
 const SUPPLIER_PO_COLORS = ["#1877F2", "#42B72A", "#F5A623", "#8E44AD", "#E74C3C", "#16A085", "#E67E22", "#34495E"];
 export function OrderDrawer({
   order, orderItems, supplierPOs, supplierPOItems, invoices, payments, shipments, statusHistory,
-  customers, suppliers,
-  onClose, onStatusChange,
+  customers, suppliers, users = [],
+  onClose, onStatusChange, onUpdateStatus, onUpdateOrder, onArchiveOrder, onDeleteOrder,
   onAddSupplierPO, onAddInvoice, onAddPayment, onAddShipment, onUpdateShipment,
   onRegenPO, onRegenInvoice
 }) {
@@ -40,9 +40,19 @@ export function OrderDrawer({
   const [showPaymentForm, setShowPaymentForm] = useState(null); // 'customer_payment_in' | 'supplier_payment_out' | null
   const [showShipmentForm, setShowShipmentForm] = useState(false);
   const [editingShipment, setEditingShipment] = useState(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [savingOwner, setSavingOwner] = useState(false);
   if (!order) return null;
+  // App.jsx passes onUpdateStatus; older wiring used onStatusChange. Accept either.
+  const changeStatus = onUpdateStatus || onStatusChange;
   // ── Computed values ──────────────────────────────────────────────────────
   const customer = customers?.find(c => c.id === order.customer_id);
+  const activeUsers = useMemo(
+    () => (users || []).filter(u => u.active !== false && u.name)
+      .slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [users]
+  );
+  const owner = (order.owner || "").trim();
   const orderItemsForThisOrder = useMemo(
     () => (orderItems || []).filter(it => it.order_id === order.id).sort((a, b) => a.line_number - b.line_number),
     [orderItems, order.id]
@@ -71,6 +81,14 @@ export function OrderDrawer({
     () => (statusHistory || []).filter(h => h.order_id === order.id).sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at)),
     [statusHistory, order.id]
   );
+  // An order is only safely deletable when nothing financial hangs off it.
+  const attachments = [
+    { label: "supplier PO", n: supplierPOsForThisOrder.length },
+    { label: "invoice",     n: invoicesForThisOrder.length },
+    { label: "payment",     n: paymentsForThisOrder.length },
+    { label: "shipment",    n: shipmentsForThisOrder.length }
+  ].filter(a => a.n > 0);
+  const canHardDelete = attachments.length === 0;
   // Map: supplier_po_id -> color
   const supplierPOColorMap = useMemo(() => {
     const m = {};
@@ -101,6 +119,12 @@ export function OrderDrawer({
   const supplierInvoiced = invoicesForThisOrder
     .filter(i => i.invoice_type === "supplier")
     .reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+  async function setOwner(name) {
+    if (!onUpdateOrder) return;
+    setSavingOwner(true);
+    try { await onUpdateOrder(order.id, { owner: name || null }); }
+    finally { setSavingOwner(false); }
+  }
   // ── Styles ───────────────────────────────────────────────────────────────
   const overlay = {
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100,
@@ -147,31 +171,58 @@ export function OrderDrawer({
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div style={header}>
           <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: C.ink }}>
                 {order.order_number}
               </span>
               <span style={pill(getSourceColor(order.source))}>{getSourceLabel(order.source)}</span>
+              {order.archived_at && <span style={pill(C.muted)}>archived {fmtDate(order.archived_at)}</span>}
             </div>
             <div style={{ fontSize: 17, fontWeight: 600, color: C.ink, marginBottom: 4 }}>
               {customer ? fmtName(customer.company) : "—"} {customer?.country && <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}>· {customer.country}</span>}
             </div>
-            <div style={{ fontSize: 12, color: C.muted }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>
               Customer PO: <strong>{order.customer_po_number || "—"}</strong>
               {order.customer_po_date && <span> · {fmtDate(order.customer_po_date)}</span>}
               {order.job_name && <span> · {order.job_name}</span>}
+            </div>
+            {/* ── Owner (editable) ── */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Owner</span>
+              {onUpdateOrder ? (
+                <select
+                  value={owner}
+                  disabled={savingOwner}
+                  onChange={e => setOwner(e.target.value)}
+                  style={{
+                    background: owner ? C.bg : "#FFF8E7",
+                    border: `1px solid ${owner ? C.border : "#FFE0A3"}`,
+                    borderRadius: 7, padding: "5px 10px", fontSize: 12,
+                    color: owner ? C.ink : "#8a5a00", fontWeight: owner ? 500 : 700,
+                    cursor: "pointer", fontFamily: "inherit", minWidth: 170
+                  }}>
+                  <option value="">— no owner set —</option>
+                  {activeUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                  {owner && !activeUsers.some(u => u.name === owner) &&
+                    <option value={owner}>{owner} (legacy)</option>}
+                </select>
+              ) : (
+                <span style={{ fontSize: 12, color: owner ? C.ink : C.faded }}>{owner || "—"}</span>
+              )}
+              {savingOwner && <span style={{ fontSize: 11, color: C.muted }}>saving…</span>}
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
             <select
               value={order.status}
-              onChange={e => onStatusChange(order.id, e.target.value)}
+              onChange={e => changeStatus && changeStatus(order.id, e.target.value)}
+              disabled={!changeStatus}
               style={{
                 padding: "6px 12px", border: `2px solid ${ORDER_STATUS_COLORS[order.status] || C.muted}`,
                 borderRadius: 8, fontSize: 12, fontWeight: 600,
                 background: `${ORDER_STATUS_COLORS[order.status] || C.muted}11`,
                 color: ORDER_STATUS_COLORS[order.status] || C.ink,
-                cursor: "pointer"
+                cursor: changeStatus ? "pointer" : "not-allowed"
               }}
             >
               {ORDER_STATUSES.map(s => <option key={s}>{s}</option>)}
@@ -376,7 +427,7 @@ export function OrderDrawer({
               {paymentsForThisOrder.length === 0 ? (
                 <div style={{ ...card, color: C.muted, fontSize: 12, padding: 20, textAlign: "center" }}>No payments logged.</div>
               ) : (
-                paymentsForThisOrder.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date)).map(p => (
+                paymentsForThisOrder.slice().sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date)).map(p => (
                   <div key={p.id} style={card}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
@@ -462,6 +513,49 @@ export function OrderDrawer({
                   <span> · Last updated {fmtDate(order.updated_at)}</span>
                 )}
               </div>
+
+              {/* ── Remove this order ─────────────────────────────────────── */}
+              <div style={{ ...card, marginTop: 20, border: `1px solid ${C.red}44` }}>
+                <div style={{ fontSize: 11, color: C.red, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700, marginBottom: 8 }}>
+                  Remove this order
+                </div>
+                {order.archived_at ? (
+                  <>
+                    <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>
+                      Archived on {fmtDate(order.archived_at)}
+                      {order.archived_reason && <> — “{order.archived_reason}”</>}. It's hidden from the orders list and excluded from all totals.
+                    </div>
+                    <button
+                      onClick={() => onUpdateOrder && onUpdateOrder(order.id, { archived_at: null, archived_reason: null })}
+                      style={{ background: C.blue, color: "#fff", border: 0, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      ↩ Restore this order
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>
+                      {canHardDelete
+                        ? <>Nothing is attached to this order — no supplier POs, invoices, payments or shipments. It can be deleted outright, or archived if you'd rather keep the record.</>
+                        : <>This order has {attachments.map(a => `${a.n} ${a.label}${a.n === 1 ? "" : "s"}`).join(", ")} attached, so it can't be deleted — deleting it would orphan financial records. Archiving hides it from the list and removes it from all totals, and can be undone.</>}
+                    </div>
+                    {!confirmRemove ? (
+                      <button
+                        onClick={() => setConfirmRemove(true)}
+                        style={{ background: "transparent", color: C.red, border: `1px solid ${C.red}66`, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        {canHardDelete ? "Delete this order…" : "Archive this order…"}
+                      </button>
+                    ) : (
+                      <RemoveConfirm
+                        order={order}
+                        canHardDelete={canHardDelete}
+                        onCancel={() => setConfirmRemove(false)}
+                        onArchive={onArchiveOrder}
+                        onDelete={onDeleteOrder}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -507,6 +601,64 @@ export function OrderDrawer({
           onSave={editingShipment ? onUpdateShipment : onAddShipment}
         />
       )}
+    </div>
+  );
+}
+// ── Remove confirmation — reason required, order number must be typed for delete ──
+function RemoveConfirm({ order, canHardDelete, onCancel, onArchive, onDelete }) {
+  const [reason, setReason] = useState("");
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const reasonOk = reason.trim().length >= 3;
+  const typedOk = typed.trim().toUpperCase() === (order.order_number || "").toUpperCase();
+  const inp = {
+    width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8,
+    padding: "8px 11px", fontSize: 12, fontFamily: "inherit", color: C.ink, outline: "none",
+    boxSizing: "border-box", marginBottom: 10
+  };
+  async function archive() {
+    if (!reasonOk || !onArchive) return;
+    setBusy(true);
+    try { await onArchive(order.id, reason.trim()); } finally { setBusy(false); }
+  }
+  async function hardDelete() {
+    if (!typedOk || !onDelete) return;
+    setBusy(true);
+    try { await onDelete(order.id); } finally { setBusy(false); }
+  }
+  return (
+    <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 9, padding: 14 }}>
+      <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: C.muted, textTransform: "uppercase", display: "block", marginBottom: 5 }}>
+        Reason {canHardDelete ? "(required to archive)" : "(required)"}
+      </label>
+      <input style={inp} value={reason} onChange={e => setReason(e.target.value)}
+        placeholder="e.g. duplicate entry, test order, entered against wrong customer" autoFocus />
+
+      {canHardDelete && (
+        <>
+          <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: C.red, textTransform: "uppercase", display: "block", marginBottom: 5 }}>
+            To delete permanently, type {order.order_number}
+          </label>
+          <input style={inp} value={typed} onChange={e => setTyped(e.target.value)} placeholder={order.order_number} />
+        </>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={onCancel} disabled={busy}
+          style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          Cancel
+        </button>
+        <button onClick={archive} disabled={busy || !reasonOk}
+          style={{ background: reasonOk ? C.amber : C.faded, color: "#fff", border: 0, borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: reasonOk && !busy ? "pointer" : "not-allowed" }}>
+          {busy ? "Working…" : "Archive (reversible)"}
+        </button>
+        {canHardDelete && (
+          <button onClick={hardDelete} disabled={busy || !typedOk}
+            style={{ background: typedOk ? C.red : C.faded, color: "#fff", border: 0, borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: typedOk && !busy ? "pointer" : "not-allowed" }}>
+            {busy ? "Working…" : "Delete permanently"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

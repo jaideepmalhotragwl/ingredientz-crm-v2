@@ -16,18 +16,37 @@ function toUSD(amount, currency) {
   const r = FX[(currency || "USD").toUpperCase()] ?? 1;
   return (parseFloat(amount) || 0) * r;
 }
-// Owner of the PO — reads whichever field exists on the order.
-const ownerOf = o => o.owner || o.assigned_to || o.created_by || "";
-export function OrdersTab({ orders, customers, onSelect, onNew }) {
+// Owner of the order. NOTE: created_by is a bigint user id, not a name —
+// it must NOT be used as a display fallback or you get a number in the cell.
+const ownerOf = o => (o.owner || o.assigned_to || "").trim();
+export function OrdersTab({ orders, customers, users = [], onSelect, onNew, onUpdateOrder }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [customerFilter, setCustomerFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
+  const [ownerFilter, setOwnerFilter] = useState("All");
+  const [showArchived, setShowArchived] = useState(false);
+  const [savingId, setSavingId] = useState(null);
   const [sort, setSort] = useState({ k: "customer_po_date", d: -1 });  // default: newest PO first
-  // ── Metrics ───────────────────────────────────────────────────────────────
+  // Archived orders are hidden everywhere unless explicitly shown.
+  const liveOrders = useMemo(
+    () => orders.filter(o => showArchived ? !!o.archived_at : !o.archived_at),
+    [orders, showArchived]
+  );
+  const archivedCount = useMemo(() => orders.filter(o => !!o.archived_at).length, [orders]);
+  const unattributedCount = useMemo(
+    () => orders.filter(o => !o.archived_at && !ownerOf(o)).length,
+    [orders]
+  );
+  const activeUsers = useMemo(
+    () => (users || []).filter(u => u.active !== false && u.name)
+      .slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [users]
+  );
+  // ── Metrics (archived excluded) ───────────────────────────────────────────
   const metrics = useMemo(() => {
-    // Order book = every order except Cancelled, summed currency-aware.
-    const book = orders.filter(o => o.status !== "Cancelled");
+    const live = orders.filter(o => !o.archived_at);
+    const book = live.filter(o => o.status !== "Cancelled");
     const byCur = {};
     let bookUSD = 0;
     book.forEach(o => {
@@ -36,11 +55,11 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       byCur[cur] = (byCur[cur] || 0) + amt;
       bookUSD += toUSD(amt, cur);
     });
-    const active = orders.filter(o => !["Delivered", "Cancelled"].includes(o.status));
-    const awaitingUSD = orders
+    const active = live.filter(o => !["Delivered", "Cancelled"].includes(o.status));
+    const awaitingUSD = live
       .filter(o => ["Invoiced", "Confirmed", "Suppliers Assigned"].includes(o.status))
       .reduce((sum, o) => sum + toUSD(o.total_amount, o.currency), 0);
-    const inTransit = orders.filter(o => o.status === "Shipped").length;
+    const inTransit = live.filter(o => o.status === "Shipped").length;
     return { active: active.length, awaitingUSD, inTransit, bookUSD, byCur };
   }, [orders]);
   const converted = Object.keys(metrics.byCur).some(c => c !== "USD");
@@ -49,10 +68,12 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
     .join("  ·  ");
   // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    const rows = orders.filter(o => {
+    const rows = liveOrders.filter(o => {
       if (statusFilter !== "All" && o.status !== statusFilter) return false;
       if (sourceFilter !== "All" && o.source !== sourceFilter.toLowerCase()) return false;
       if (customerFilter !== "All" && String(o.customer_id) !== String(customerFilter)) return false;
+      if (ownerFilter === "(unassigned)" && ownerOf(o)) return false;
+      if (ownerFilter !== "All" && ownerFilter !== "(unassigned)" && ownerOf(o) !== ownerFilter) return false;
       if (search) {
         const s = search.toLowerCase();
         const cust = customers.find(c => c.id === o.customer_id);
@@ -74,10 +95,17 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
       if (va && !vb) return -1;
       return String(va).localeCompare(String(vb)) * sort.d;
     });
-  }, [orders, search, statusFilter, customerFilter, sourceFilter, customers, sort]);
+  }, [liveOrders, search, statusFilter, customerFilter, sourceFilter, ownerFilter, customers, sort]);
   function toggleSort(k) { setSort(s => s.k === k ? { k, d: s.d * -1 } : { k, d: -1 }); }
   function getCustomerName(id) {
     return customers.find(c => c.id === id)?.company || "—";
+  }
+  // Inline owner save — writes the exact users.name string, so no Sid/Sidd drift.
+  async function setOwner(order, name) {
+    if (!onUpdateOrder) return;
+    setSavingId(order.id);
+    try { await onUpdateOrder(order.id, { owner: name || null }); }
+    finally { setSavingId(null); }
   }
   // ── Styles ────────────────────────────────────────────────────────────────
   const card = { background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 16 };
@@ -120,6 +148,18 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
           }
         />
       </div>
+
+      {/* Unattributed nudge */}
+      {!showArchived && unattributedCount > 0 && (
+        <div style={{ background: "#FFF8E7", border: `1px solid #FFE0A3`, borderRadius: 9, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#8a5a00", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span><b>{unattributedCount}</b> order{unattributedCount === 1 ? " has" : "s have"} no owner — set one in the Owner column to keep rep reporting accurate.</span>
+          <button onClick={() => setOwnerFilter(ownerFilter === "(unassigned)" ? "All" : "(unassigned)")}
+            style={{ background: "transparent", border: `1px solid #E0B25A`, borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: "#8a5a00", cursor: "pointer", whiteSpace: "nowrap" }}>
+            {ownerFilter === "(unassigned)" ? "Show all" : "Show only these"}
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         <input
@@ -132,6 +172,11 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
           <option>All</option>
           {ORDER_STATUSES.map(s => <option key={s}>{s}</option>)}
         </select>
+        <select style={inputStyle} value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}>
+          <option value="All">All owners</option>
+          <option value="(unassigned)">— no owner —</option>
+          {activeUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+        </select>
         <select style={inputStyle} value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}>
           <option value="All">All customers</option>
           {customers.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
@@ -141,15 +186,28 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
           <option value="enquiry">From enquiry</option>
           <option value="direct">Direct</option>
         </select>
+        <button
+          onClick={() => setShowArchived(v => !v)}
+          title="Archived orders are hidden from all totals"
+          style={{
+            ...inputStyle, cursor: "pointer", fontWeight: showArchived ? 700 : 500,
+            color: showArchived ? C.blue : C.muted,
+            borderColor: showArchived ? C.blue : C.border
+          }}>
+          {showArchived ? "← Back to active" : `Archived (${archivedCount})`}
+        </button>
         <button style={btnPrimary} onClick={onNew}>+ New order</button>
       </div>
+
       {/* Table */}
       <div style={{ ...card, padding: 0, overflow: "hidden" }}>
         {filtered.length === 0 ? (
           <div style={{ padding: 40, textAlign: "center", color: C.muted, fontSize: 13 }}>
-            {orders.length === 0
-              ? "No orders yet. Click + New order to add your first PO."
-              : "No orders match the current filters."}
+            {showArchived
+              ? "No archived orders."
+              : orders.length === 0
+                ? "No orders yet. Click + New order to add your first PO."
+                : "No orders match the current filters."}
           </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -168,38 +226,68 @@ export function OrdersTab({ orders, customers, onSelect, onNew }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o, i) => (
-                <tr
-                  key={o.id}
-                  onClick={() => onSelect(o)}
-                  style={{ borderTop: `1px solid ${C.border}`, cursor: "pointer" }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.bg}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  <Td style={{ color: C.faded, fontSize: 12, fontFamily: "monospace" }}>{i + 1}</Td>
-                  <Td>
-                    <span style={{ fontFamily: "monospace", fontSize: 12 }}>{o.order_number}</span>
-                  </Td>
-                  <Td>{getCustomerName(o.customer_id)}</Td>
-                  <Td style={{ color: ownerOf(o) ? C.ink : C.faded }}>{ownerOf(o) || "—"}</Td>
-                  <Td style={{ color: C.muted }}>{o.customer_po_number || "—"}</Td>
-                  <Td style={{ color: C.muted, fontSize: 12 }}>{o.customer_po_date ? fmtDate(o.customer_po_date) : "—"}</Td>
-                  <Td>{fmtMoney(o.total_amount, o.currency)}</Td>
-                  <Td>
-                    <span style={pill(getSourceColor(o.source))}>{getSourceLabel(o.source)}</span>
-                  </Td>
-                  <Td>
-                    <span style={pill(ORDER_STATUS_COLORS[o.status] || C.muted)}>{o.status}</span>
-                  </Td>
-                  <Td style={{ color: C.muted, fontSize: 12 }}>{fmtDate(o.updated_at || o.created_at)}</Td>
-                </tr>
-              ))}
+              {filtered.map((o, i) => {
+                const owner = ownerOf(o);
+                return (
+                  <tr
+                    key={o.id}
+                    onClick={() => onSelect(o)}
+                    style={{ borderTop: `1px solid ${C.border}`, cursor: "pointer", opacity: o.archived_at ? 0.6 : 1 }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.bg}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <Td style={{ color: C.faded, fontSize: 12, fontFamily: "monospace" }}>{i + 1}</Td>
+                    <Td>
+                      <span style={{ fontFamily: "monospace", fontSize: 12 }}>{o.order_number}</span>
+                      {o.archived_at && <span style={{ ...pill(C.muted), marginLeft: 6, fontSize: 9 }}>archived</span>}
+                    </Td>
+                    <Td>{getCustomerName(o.customer_id)}</Td>
+                    {/* Inline owner editor — click doesn't open the drawer */}
+                    <Td onClick={ev => ev.stopPropagation()}>
+                      {onUpdateOrder ? (
+                        <select
+                          value={owner}
+                          disabled={savingId === o.id}
+                          onChange={ev => setOwner(o, ev.target.value)}
+                          title={owner ? `Owner: ${owner}` : "No owner set"}
+                          style={{
+                            background: owner ? "transparent" : "#FFF8E7",
+                            border: `1px solid ${owner ? "transparent" : "#FFE0A3"}`,
+                            borderRadius: 6, padding: "3px 6px", fontSize: 12,
+                            color: owner ? C.ink : "#8a5a00",
+                            fontWeight: owner ? 500 : 600,
+                            cursor: "pointer", fontFamily: "inherit", maxWidth: 130
+                          }}>
+                          <option value="">— set owner —</option>
+                          {activeUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                          {/* keep a legacy value visible if it isn't in the users list */}
+                          {owner && !activeUsers.some(u => u.name === owner) &&
+                            <option value={owner}>{owner} (legacy)</option>}
+                        </select>
+                      ) : (
+                        <span style={{ color: owner ? C.ink : C.faded }}>{owner || "—"}</span>
+                      )}
+                    </Td>
+                    <Td style={{ color: C.muted }}>{o.customer_po_number || "—"}</Td>
+                    <Td style={{ color: C.muted, fontSize: 12 }}>{o.customer_po_date ? fmtDate(o.customer_po_date) : "—"}</Td>
+                    <Td>{fmtMoney(o.total_amount, o.currency)}</Td>
+                    <Td>
+                      <span style={pill(getSourceColor(o.source))}>{getSourceLabel(o.source)}</span>
+                    </Td>
+                    <Td>
+                      <span style={pill(ORDER_STATUS_COLORS[o.status] || C.muted)}>{o.status}</span>
+                    </Td>
+                    <Td style={{ color: C.muted, fontSize: 12 }}>{fmtDate(o.updated_at || o.created_at)}</Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
       <div style={{ fontSize: 11, color: C.muted, marginTop: 10, textAlign: "right" }}>
-        Showing {filtered.length} of {orders.length} orders
+        Showing {filtered.length} of {liveOrders.length} {showArchived ? "archived" : "active"} orders
+        {!showArchived && archivedCount > 0 && ` · ${archivedCount} archived`}
       </div>
     </div>
   );
