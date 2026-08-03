@@ -42,6 +42,7 @@ export function OrderDrawer({
   const [editingShipment, setEditingShipment] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [savingOwner, setSavingOwner] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
   if (!order) return null;
   // App.jsx passes onUpdateStatus; older wiring used onStatusChange. Accept either.
   const changeStatus = onUpdateStatus || onStatusChange;
@@ -181,11 +182,26 @@ export function OrderDrawer({
             <div style={{ fontSize: 17, fontWeight: 600, color: C.ink, marginBottom: 4 }}>
               {customer ? fmtName(customer.company) : "—"} {customer?.country && <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}>· {customer.country}</span>}
             </div>
-            <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>
-              Customer PO: <strong>{order.customer_po_number || "—"}</strong>
-              {order.customer_po_date && <span> · {fmtDate(order.customer_po_date)}</span>}
-              {order.job_name && <span> · {order.job_name}</span>}
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>
+                Customer PO: <strong>{order.customer_po_number || "—"}</strong>
+                {order.customer_po_date && <span> · {fmtDate(order.customer_po_date)}</span>}
+                {order.job_name && <span> · {order.job_name}</span>}
+              </span>
+              {onUpdateOrder && !editingDetails && (
+                <button onClick={() => setEditingDetails(true)}
+                  style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "2px 9px", fontSize: 11, fontWeight: 600, color: C.blue, cursor: "pointer" }}>
+                  ✎ Edit details
+                </button>
+              )}
             </div>
+            {editingDetails && (
+              <OrderDetailsEdit
+                order={order}
+                onCancel={() => setEditingDetails(false)}
+                onSave={async patch => { await onUpdateOrder(order.id, patch); setEditingDetails(false); }}
+              />
+            )}
             {/* ── Owner (editable) ── */}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Owner</span>
@@ -601,6 +617,75 @@ export function OrderDrawer({
           onSave={editingShipment ? onUpdateShipment : onAddShipment}
         />
       )}
+    </div>
+  );
+}
+// ── Edit the order's reference details (PO number, dates, job name) ──────────
+//    Line-item values are NOT editable here — order value comes from the items.
+function OrderDetailsEdit({ order, onCancel, onSave }) {
+  const iso = d => d ? String(d).split("T")[0] : "";
+  const [form, setForm] = useState({
+    customer_po_number: order.customer_po_number || "",
+    customer_po_date: iso(order.customer_po_date),
+    expected_delivery_date: iso(order.expected_delivery_date),
+    job_name: order.job_name || ""
+  });
+  const [busy, setBusy] = useState(false);
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
+  // Flag dates that look like a day/month transposition or a far-future typo.
+  const poDate = form.customer_po_date ? new Date(form.customer_po_date) : null;
+  const futureWarn = poDate && poDate > new Date(Date.now() + 7 * 86400000);
+  const lbl = { fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: C.muted, textTransform: "uppercase", display: "block", marginBottom: 4 };
+  const inp = { width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontFamily: "inherit", color: C.ink, outline: "none", boxSizing: "border-box" };
+  async function save() {
+    setBusy(true);
+    try {
+      await onSave({
+        customer_po_number: form.customer_po_number.trim() || null,
+        customer_po_date: form.customer_po_date || null,
+        expected_delivery_date: form.expected_delivery_date || null,
+        job_name: form.job_name.trim() || null
+      });
+    } finally { setBusy(false); }
+  }
+  return (
+    <div style={{ background: C.bg, border: `1px solid ${C.blue}44`, borderRadius: 9, padding: 14, marginBottom: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.2fr", gap: 10, marginBottom: 10 }}>
+        <div>
+          <label style={lbl}>Customer PO #</label>
+          <input style={inp} value={form.customer_po_number} onChange={e => set("customer_po_number", e.target.value)} placeholder="PO4581" />
+        </div>
+        <div>
+          <label style={lbl}>PO date</label>
+          <input type="date" style={{ ...inp, borderColor: futureWarn ? C.amber : C.border }} value={form.customer_po_date} onChange={e => set("customer_po_date", e.target.value)} />
+        </div>
+        <div>
+          <label style={lbl}>Expected delivery</label>
+          <input type="date" style={inp} value={form.expected_delivery_date} onChange={e => set("expected_delivery_date", e.target.value)} />
+        </div>
+        <div>
+          <label style={lbl}>Job name</label>
+          <input style={inp} value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="optional" />
+        </div>
+      </div>
+      {futureWarn && (
+        <div style={{ fontSize: 11, color: "#8a5a00", background: "#FFF8E7", border: "1px solid #FFE0A3", borderRadius: 7, padding: "7px 10px", marginBottom: 10 }}>
+          ⚠ That PO date is in the future — check it isn't a day/month mix-up (03/10 vs 10/03).
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={save} disabled={busy}
+          style={{ background: C.blue, color: "#fff", border: 0, borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button onClick={onCancel} disabled={busy}
+          style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          Cancel
+        </button>
+        <span style={{ fontSize: 11, color: C.muted, alignSelf: "center", marginLeft: 4 }}>
+          Order value is calculated from line items — it isn't edited here.
+        </span>
+      </div>
     </div>
   );
 }
