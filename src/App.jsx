@@ -591,6 +591,31 @@ export default function App() {
     if (hist) setStatusHistory(p => [...hist, ...p.filter(h => h.order_id !== id)]);
     showToast(`✓ Status → ${status}`);
   }
+  // ── Archive an order: hides it from the list and all totals. Reversible. ──
+  async function archiveOrder(id, reason) {
+    const now = new Date().toISOString();
+    await dbUpdate("orders", id, { archived_at: now, archived_reason: reason || null });
+    setOrders(p => p.map(o => o.id === id ? { ...o, archived_at: now, archived_reason: reason || null } : o));
+    setSelectedOrder(null);
+    showToast("✓ Order archived");
+  }
+  // ── Hard delete. Only reachable from the drawer when nothing is attached. ──
+  //    Line items go first so no orphan rows are left behind.
+  async function deleteOrder(id) {
+    try {
+      const { error: itemErr } = await supabase.from("order_items").delete().eq("order_id", id);
+      if (itemErr) { console.error("delete order_items:", itemErr); showToast("✗ Could not delete line items", true); return; }
+      const { error } = await supabase.from("orders").delete().eq("id", id);
+      if (error) { console.error("delete order:", error); showToast("✗ Could not delete order", true); return; }
+      setOrders(p => p.filter(o => o.id !== id));
+      setOrderItems(p => p.filter(i => i.order_id !== id));
+      setSelectedOrder(null);
+      showToast("✓ Order deleted");
+    } catch (e) {
+      console.error("deleteOrder error:", e);
+      showToast("✗ Could not delete order", true);
+    }
+  }
   async function addSupplierPO(poRow, poItemRows, pdfFile, opts = {}) {
     try {
       const newPO = await dbInsert("supplier_pos", poRow);
@@ -897,7 +922,7 @@ export default function App() {
         </div>
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} orders={orders} />}
         {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} quotations={quotations} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
-        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} />}
+        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} users={users} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} onUpdateOrder={updateOrder} />}
         {activeTab === "samples"    && <SamplesTab samples={samples} enquiries={enquiries} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} onOpenEnquiry={enq => { setSelectedEnq(enq); setActiveTab("enquiries"); }} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
@@ -951,9 +976,12 @@ export default function App() {
           statusHistory={statusHistory.filter(h => h.order_id === selectedOrder.id)}
           customers={customers}
           suppliers={suppliers}
+          users={users}
           onClose={() => setSelectedOrder(null)}
           onUpdateOrder={updateOrder}
           onUpdateStatus={updateOrderStatus}
+          onArchiveOrder={archiveOrder}
+          onDeleteOrder={deleteOrder}
           onAddSupplierPO={addSupplierPO}
           onUpdateSupplierPO={updateSupplierPO}
           onRegenPO={regenerateSupplierPODoc}
