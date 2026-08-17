@@ -5,6 +5,7 @@ import { reminderDate } from "../utils.js";
 import { FF, FTA } from "./ui/FormFields.jsx";
 import { Btn } from "./ui/Btn.jsx";
 import { ProductAutocomplete } from "./ProductAutocomplete.jsx";
+import { CountryPhoneFields } from "./CountryPhoneFields.jsx";
 // ── Reason the enquiry is being raised (required at creation). Edit freely. ──
 const ENQUIRY_REASONS = ["New requirement","Repeat / re-order","Sample request","Price / budgetary","Tender / RFQ","Referral","Other"];
 // ── Alphabetical company sort, case- and accent-insensitive. ──
@@ -26,7 +27,8 @@ function fyQuarter(dateStr) {
   return { fy, q, qStart: iso(qStart), qEnd: iso(qEnd) };
 }
 const EMPTY_ENQ = {
-  customer_id:"", customer_name:"", contact_person:"", country:"", customer_email:"",
+  customer_id:"", customer_name:"", contact_person:"", country:"", country_iso2:"",
+  email:"", phone_dial:"", phone_national:"",
   enquiry_reason:"",
   products:[{name:"",qty:"",unit:"kg"}],
   expected_value:"", currency:"USD",
@@ -38,13 +40,31 @@ const EMPTY_ENQ = {
 function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
   const [form,setForm]=useState(()=>initial?{
     ...EMPTY_ENQ,...initial,
+    // Legacy rows may still carry the old customer_email column — fall back to it
+    // so editing an old enquiry doesn't blank the address.
+    email: initial.email || initial.customer_email || "",
     products:Array.isArray(initial.products)?initial.products:[{name:"",qty:"",unit:"kg"}],
     expected_closure:initial.expected_closure?initial.expected_closure.split("T")[0]:"",
     enquiry_date:initial.enquiry_date?initial.enquiry_date.split("T")[0]:new Date().toISOString().split("T")[0],
   }:{...EMPTY_ENQ});
   const [saving,setSaving]=useState(false);
   const [done,setDone]=useState(false);
-  function set(k,v){setForm(f=>{const u={...f,[k]:v};if(k==="customer_id"){const c=customers.find(x=>String(x.id)===String(v));if(c){u.customer_name=c.company;u.country=c.country||"";u.contact_person=c.contact||"";if(c.email)u.customer_email=c.email;}}return u;});}
+  function set(k,v){setForm(f=>{const u={...f,[k]:v};if(k==="customer_id"){const c=customers.find(x=>String(x.id)===String(v));if(c){u.customer_name=c.company;u.country=c.country||"";u.contact_person=c.contact||"";if(c.email)u.email=c.email;}}return u;});}
+  // Country + phone travel together — one control writes four fields.
+  const loc = {
+    iso2: form.country_iso2 || null,
+    name: form.country || "",
+    dial: form.phone_dial || "",
+    national: form.phone_national || "",
+  };
+  function setLoc(next){
+    setForm(f=>({...f,
+      country_iso2: next.iso2 || null,
+      country: next.name || "",
+      phone_dial: next.dial || "",
+      phone_national: next.national || "",
+    }));
+  }
   function setProduct(i,field,val){setForm(f=>({...f,products:f.products.map((p,idx)=>idx===i?{...p,[field]:val}:p)}));}
   function addProduct(){setForm(f=>({...f,products:[...f.products,{name:"",qty:"",unit:"kg"}]}));}
   function removeProduct(i){setForm(f=>({...f,products:f.products.length>1?f.products.filter((_,idx)=>idx!==i):f.products}));}
@@ -53,12 +73,20 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
     if(!initial && !form.enquiry_reason){alert("Please select a reason for this enquiry.");return;}
     if(!form.products[0]?.name?.trim()){alert("At least one product required.");return;}
     setSaving(true);
+    const phoneFull = [form.phone_dial, form.phone_national].filter(Boolean).join(" ").trim();
     const row={
       customer_id:form.customer_id||null,
       customer_name:form.customer_name,
       contact_person:form.contact_person,
       country:form.country,
-      customer_email:form.customer_email?.trim()||null,
+      country_iso2:form.country_iso2||null,
+      // NOTE: writes `email`, not the legacy `customer_email`.
+      // notify_new_enquiry() reads NEW.email — writing the old column means
+      // the customer acknowledgment is silently never sent.
+      email:form.email?.trim()||null,
+      phone:phoneFull||null,
+      phone_dial:form.phone_dial||null,
+      phone_national:form.phone_national||null,
       enquiry_reason:form.enquiry_reason||null,
       products:form.products.filter(p=>p.name.trim()),
       expected_value:form.expected_value?parseFloat(form.expected_value):null,
@@ -127,8 +155,9 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
         <FF label="Customer" k="customer_id" value={form.customer_id} onChange={set} options={custOpts}/>
         <FF label="Or type company *" k="customer_name" value={form.customer_name} onChange={set} placeholder="Company name"/>
         <FF label="Contact Person" k="contact_person" value={form.contact_person} onChange={set} placeholder="Full name"/>
-        <FF label="Customer Email" k="customer_email" value={form.customer_email} onChange={set} type="email" placeholder="buyer@company.com"/>
-        <FF label="Country" k="country" value={form.country} onChange={set} placeholder="e.g. Germany"/>
+        <FF label="Customer Email" k="email" value={form.email} onChange={set} type="email" placeholder="buyer@company.com"/>
+        {/* Country + Phone — linked; picking a country sets the dial prefix */}
+        <CountryPhoneFields value={loc} onChange={setLoc}/>
         <FF label="Source" k="source" value={form.source} onChange={set} options={SOURCES}/>
         <FF label="Assigned To" k="assigned_to" value={form.assigned_to} onChange={set} options={userOpts}/>
       </div>
