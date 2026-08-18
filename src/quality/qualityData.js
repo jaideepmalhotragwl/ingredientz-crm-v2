@@ -41,7 +41,7 @@ export async function loadQualityQueue() {
   const [ordersRes, customersRes, itemsRes, posRes, poItemsRes, suppliersRes, filesRes, docsRes] =
     await Promise.all([
       supabase.from("orders")
-        .select("id, order_number, customer_id, customer_po_number, customer_po_date, expected_delivery_date, status, owner, assigned_to, archived_at, created_at")
+        .select("id, order_number, customer_id, customer_po_number, customer_po_date, expected_delivery_date, status, owner, archived_at, created_at")
         .is("archived_at", null),
       supabase.from("customers").select("id, company, country"),
       supabase.from("order_items").select("id, order_id, line_number, product_name, product_spec, quantity, unit"),
@@ -151,7 +151,7 @@ export async function markNotificationsRead(ids) {
 export async function loadOrderQcFile(orderId) {
   const { data: order, error: oErr } = await supabase
     .from("orders")
-    .select("id, order_number, customer_id, customer_po_number, customer_po_date, expected_delivery_date, status, owner, assigned_to, created_at")
+    .select("id, order_number, customer_id, customer_po_number, customer_po_date, expected_delivery_date, status, owner, created_at")
     .eq("id", orderId)
     .single();
   if (oErr) throw oErr;
