@@ -29,6 +29,7 @@ import { MarketSignals }   from "./components/MarketSignals.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
 import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
+import { QualityApp }      from "./quality/QualityApp.jsx";       // ── Quality Portal ──
 
 // ── The enquiry stage that triggers the sample-details modal ──────────────────
 const SAMPLE_TRIGGER_STAGE = "Sample Under Process";
@@ -62,6 +63,7 @@ export default function App() {
   const [selectedSample, setSelectedSample] = useState(null);
   const [sampleFromEnq, setSampleFromEnq] = useState(null);   // ── enquiry awaiting sample details ──
   const [pendingApprovals, setPendingApprovals] = useState(0);
+
   async function refreshPendingApprovals() {
     const [sup, prod] = await Promise.all([
       supabase.from("suppliers").select("id", { count: "exact", head: true }).eq("status", "pending"),
@@ -69,11 +71,14 @@ export default function App() {
     ]);
     setPendingApprovals((sup.count || 0) + (prod.count || 0));
   }
+
   useEffect(() => { refreshPendingApprovals(); }, []);
+
   function showToast(msg, err = false) {
     setToast({ msg, err });
     setTimeout(() => setToast(null), 3000);
   }
+
   useEffect(() => {
     Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
@@ -93,6 +98,7 @@ export default function App() {
       setSamples(smpls || []);
     }).finally(() => setLoading(false));
   }, []);
+
   // ── Enquiry ops ──────────────────────────────────────────────────────────────
   async function addEnquiry(row) {
     const data = await dbInsert("enquiries", row);
@@ -168,17 +174,20 @@ export default function App() {
       }
     }
   }
+
   async function updateEnquiry(id, row) {
     await dbUpdate("enquiries", id, row);
     setEnquiries(p => p.map(e => e.id === id ? { ...e, ...row } : e));
     if (selectedEnq?.id === id) setSelectedEnq(s => ({ ...s, ...row }));
     showToast("✓ Enquiry updated");
   }
+
   async function deleteEnquiry(id) {
     await dbDelete("enquiries", id);
     setEnquiries(p => p.filter(e => e.id !== id));
     if (selectedEnq?.id === id) setSelectedEnq(null);
   }
+
   async function stageChange(id, stage) {
     await dbUpdate("enquiries", id, { stage });
     setEnquiries(p => p.map(e => e.id === id ? { ...e, stage } : e));
@@ -208,6 +217,7 @@ export default function App() {
       }
     }
   }
+
   // ── Task ops ─────────────────────────────────────────────────────────────────
   async function addTask(row) {
     const data = await dbInsert("tasks", row);
@@ -230,14 +240,17 @@ export default function App() {
       }
     }
   }
+
   async function updateTask(id, row) {
     await dbUpdate("tasks", id, row);
     setTasks(p => p.map(t => t.id === id ? { ...t, ...row } : t));
   }
+
   async function deleteTask(id) {
     await dbDelete("tasks", id);
     setTasks(p => p.filter(t => t.id !== id));
   }
+
   // ── Daily report ops (Team Activity / Team Desk) ───────────────────────────────
   // Upsert one row per rep per day (table has unique(user_name, report_date)).
   async function saveDailyReport(row) {
@@ -264,12 +277,15 @@ export default function App() {
       return false;
     }
   }
+
   async function addCustomer(row)    { const data = await dbInsert("customers", row); if (data) { setCustomers(p => [data, ...p]); showToast(`✓ ${row.company} added`); } }
   async function updateCustomer(id, row) { await dbUpdate("customers", id, row); setCustomers(p => p.map(c => c.id === id ? { ...c, ...row } : c)); }
   async function deleteCustomer(id)  { await dbDelete("customers", id); setCustomers(p => p.filter(c => c.id !== id)); }
+
   async function addUser(row)    { const data = await dbInsert("users", row); if (data) { setUsers(p => [data, ...p]); showToast(`✓ ${row.name} added`); } }
   async function updateUser(id, row) { await dbUpdate("users", id, row); setUsers(p => p.map(u => u.id === id ? { ...u, ...row } : u)); }
   async function deleteUser(id)  { await dbDelete("users", id); setUsers(p => p.filter(u => u.id !== id)); }
+
   async function saveQuotation(row) {
     const data = await dbInsert("quotations", row);
     if (data) {
@@ -278,6 +294,7 @@ export default function App() {
       await stageChange(row.enquiry_id, "Quotation Sent");
     }
   }
+
   async function sendQuotationEmail(enq, form, grandTotal, users, attachments) {
     const sender = getSenderEmail(enq.assigned_to, users);
     const custEmail = customers.find(c => c.id === enq.customer_id)?.email || "";
@@ -297,6 +314,7 @@ export default function App() {
     const data = await dbInsert("email_threads", threadRow);
     if (data) setThreads(p => [data, ...p]);
   }
+
   async function scheduleSequence(enq, type, toEmail, fromEmail, delayDays) {
     try {
       await supabase.from("email_sequences")
@@ -318,10 +336,12 @@ export default function App() {
       showToast(`✓ ${delayDays.length} follow-up reminders scheduled`);
     } catch(e) { console.error("scheduleSequence error:", e); }
   }
+
   async function logEmail(row) {
     const data = await dbInsert("email_threads", row);
     if (data) { setThreads(p => [data, ...p]); showToast("✓ Email logged"); }
   }
+
   // ══ SAMPLE OPS ══════════════════════════════════════════════════════════════
   // RULE: creating a sample NEVER sends an email. The supplier request goes out
   // only when someone presses "Send request to supplier" in the sample drawer.
@@ -346,6 +366,7 @@ export default function App() {
     showToast(`✓ Sample ${sample_number} created — request not sent yet`);
     return data;
   }
+
   // ── Multi-product customer sample enquiry: one row per product, shared enquiry_no.
   async function addSampleEnquiry(payload) {
     const enquiry_no = `SEN-${Date.now().toString().slice(-6)}`;
@@ -390,6 +411,7 @@ export default function App() {
     }
     return created;
   }
+
   // ── Enquiry → Sample linkage ──
   // Same shape as above, but hard-linked to the enquiry via enquiry_id and
   // labelled ENQ-123 so both pages point at each other.
@@ -435,6 +457,7 @@ export default function App() {
     }
     return created;
   }
+
   // Assign a supplier to an awaiting sample. Records it only — the request email
   // is a separate, deliberate press in the drawer.
   async function assignSampleSupplier(sample, supplier) {
@@ -450,6 +473,7 @@ export default function App() {
     await updateSample(sample.id, patch);
     showToast(`✓ ${supplier.company} assigned — press Send request when ready`);
   }
+
   // ── MANUAL: fires the sample-request email to the supplier, stamps the send,
   //    and only then starts the follow-up due-date clock.
   async function sendSampleRequest(sample) {
@@ -485,6 +509,7 @@ export default function App() {
     await updateSample(sample.id, patch);
     showToast(res?.id ? `✓ Request sent to ${sample.supplier_name || "supplier"}` : `✓ Request sent`);
   }
+
   // ── Stop / resume follow-ups for one sample ──
   async function toggleSampleFollowups(sample) {
     const paused = !sample.followups_paused;
@@ -495,11 +520,13 @@ export default function App() {
     });
     showToast(paused ? `🔕 Follow-ups stopped for ${sample.sample_number}` : `🔔 Follow-ups resumed`);
   }
+
   async function updateSample(id, patch) {
     await dbUpdate("samples", id, { ...patch, updated_at: new Date().toISOString() });
     setSamples(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
     if (selectedSample?.id === id) setSelectedSample(s => ({ ...s, ...patch }));
   }
+
   // Advance to a stage, stamping the right timestamp + setting the follow-up loop.
   // A paused sample never gets a new due date.
   async function advanceSample(sample, toStage, extra = {}) {
@@ -515,6 +542,7 @@ export default function App() {
     await updateSample(sample.id, { stage: toStage, ...stamp, ...extra });
     showToast(`✓ ${sample.sample_number} → ${toStage}`);
   }
+
   // Manual chase — sends immediately and pushes the next due date out
   async function sendSampleChase(sample, who) {
     const to = who === "supplier" ? sample.supplier_email : sample.customer_email;
@@ -543,6 +571,7 @@ export default function App() {
     });
     showToast(res?.id ? `✓ Chase sent to ${name}` : `✓ Chase sent`);
   }
+
   // ── ORDER OPS ────────────────────────────────────────────────────────────────
   async function addOrder(orderRow, itemRows, poFile) {
     try {
@@ -577,12 +606,14 @@ export default function App() {
       return null;
     }
   }
+
   async function updateOrder(id, patch) {
     await dbUpdate("orders", id, patch);
     setOrders(p => p.map(o => o.id === id ? { ...o, ...patch } : o));
     if (selectedOrder?.id === id) setSelectedOrder(s => ({ ...s, ...patch }));
     showToast("✓ Order updated");
   }
+
   async function updateOrderStatus(id, status) {
     await dbUpdate("orders", id, { status });
     setOrders(p => p.map(o => o.id === id ? { ...o, status } : o));
@@ -591,6 +622,7 @@ export default function App() {
     if (hist) setStatusHistory(p => [...hist, ...p.filter(h => h.order_id !== id)]);
     showToast(`✓ Status → ${status}`);
   }
+
   // ── Archive an order: hides it from the list and all totals. Reversible. ──
   async function archiveOrder(id, reason) {
     const now = new Date().toISOString();
@@ -599,6 +631,7 @@ export default function App() {
     setSelectedOrder(null);
     showToast("✓ Order archived");
   }
+
   // ── Hard delete. Only reachable from the drawer when nothing is attached. ──
   //    Line items go first so no orphan rows are left behind.
   async function deleteOrder(id) {
@@ -616,6 +649,7 @@ export default function App() {
       showToast("✗ Could not delete order", true);
     }
   }
+
   async function addSupplierPO(poRow, poItemRows, pdfFile, opts = {}) {
     try {
       const newPO = await dbInsert("supplier_pos", poRow);
@@ -654,11 +688,13 @@ export default function App() {
       return null;
     }
   }
+
   async function updateSupplierPO(id, patch) {
     await dbUpdate("supplier_pos", id, patch);
     setSupplierPOs(p => p.map(po => po.id === id ? { ...po, ...patch } : po));
     showToast("✓ Supplier PO updated");
   }
+
   async function addInvoice(invoiceRow, file, opts = {}) {
     try {
       const newInv = await dbInsert("order_invoices", invoiceRow);
@@ -693,11 +729,13 @@ export default function App() {
       return null;
     }
   }
+
   async function updateInvoice(id, patch) {
     await dbUpdate("order_invoices", id, patch);
     setInvoices(p => p.map(i => i.id === id ? { ...i, ...patch } : i));
     showToast("✓ Invoice updated");
   }
+
   // Rebuild the branded PDF for an existing supplier PO (no new record).
   async function regenerateSupplierPODoc(po) {
     try {
@@ -715,6 +753,7 @@ export default function App() {
       showToast("✓ PO PDF regenerated");
     } catch (e) { console.error("regenerateSupplierPODoc:", e); showToast("✗ PDF generation failed", true); }
   }
+
   // Rebuild the branded PDF for an existing customer invoice.
   async function regenerateInvoiceDoc(inv) {
     try {
@@ -730,6 +769,7 @@ export default function App() {
       showToast("✓ Invoice PDF regenerated");
     } catch (e) { console.error("regenerateInvoiceDoc:", e); showToast("✗ PDF generation failed", true); }
   }
+
   async function addPayment(paymentRow) {
     try {
       const newPay = await dbInsert("order_payments", paymentRow);
@@ -765,6 +805,7 @@ export default function App() {
       return null;
     }
   }
+
   async function addShipment(shipmentRow) {
     try {
       const newShip = await dbInsert("order_shipments", shipmentRow);
@@ -788,11 +829,13 @@ export default function App() {
       return null;
     }
   }
+
   async function updateShipment(id, patch) {
     await dbUpdate("order_shipments", id, patch);
     setShipments(p => p.map(s => s.id === id ? { ...s, ...patch } : s));
     showToast("✓ Shipment updated");
   }
+
   async function handleRefresh() {
     setLoading(true);
     const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls] = await Promise.all([
@@ -815,13 +858,16 @@ export default function App() {
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
+
   const overdueTaskCount = tasks.filter(t => t.status !== "Done" && t.due_date && daysUntil(t.due_date) < 0).length;
   const overdueReminderCount = enquiries.filter(e => {
     const d = daysUntil(e.reminder_date);
     return d !== null && d <= 0 && !["PO Received", "Lost"].includes(e.stage);
   }).length;
+
   // ── Samples badge: supplier requests logged but never sent ──
   const unsentSampleCount = samples.filter(s => s.supplier_id && !s.request_sent_at).length;
+
   // ── Team Desk: count reps who haven't filed today's Daily MIS (drives the tab badge) ──
   const todayStr = new Date().toISOString().slice(0, 10);
   const reportedTodaySet = new Set(
@@ -830,6 +876,7 @@ export default function App() {
   const missingReportCount = users.filter(
     u => (u.active !== false) && u.name && !reportedTodaySet.has(u.name)
   ).length;
+
   const TABS = [
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
@@ -843,6 +890,7 @@ export default function App() {
     { id: "labels",     label: "Labels",     icon: "🏷️", badge: 0 },
     { id: "approvals",  label: "Approvals",  icon: "✅", badge: pendingApprovals },
     { id: "documents",  label: "Documents",  icon: "📄", badge: 0 },
+    { id: "quality",    label: "Quality",    icon: "🔬", badge: 0 },   // ── Quality Portal ──
     { id: "content",    label: "Content",    icon: "✍️", badge: 0 },
     { id: "marketintel", label: "Market Intel", icon: "📈", badge: 0 },
     { id: "signals",    label: "Signals",    icon: "📡", badge: 0 },
@@ -850,10 +898,18 @@ export default function App() {
     { id: "teamdesk",   label: "Team Tracker", icon: "🎯", badge: missingReportCount },   // ── Team Tracker (replaces Team Activity) ──
     { id: "users",      label: "Team",       icon: "👥", badge: 0 },
   ];
+
   // Samples that belong to the enquiry currently open in the drawer
   const enqSamples = selectedEnq
     ? samples.filter(s => String(s.enquiry_id) === String(selectedEnq.id))
     : [];
+
+  // ── Quality Portal takes the full screen: it draws its own sidebar ──
+  //    Must sit below every hook and above the main return.
+  if (activeTab === "quality") {
+    return <QualityApp onExit={() => setActiveTab("dashboard")} />;
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Arial,sans-serif" }}>
       {toast && (
