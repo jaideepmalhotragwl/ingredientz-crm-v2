@@ -19,6 +19,11 @@ const CLOSE_REASONS = [
   "Out of scope / can't supply",
   "Other",
 ];
+// ── Violet = "this enquiry isn't linked to a company yet". ────────────────────
+// Deliberately not red or amber — those already mean overdue reminder and
+// closing soon. This is a data gap for the team to fill, not a deadline.
+const NOCO = "#7C3AED";
+const NOCO_BG = "#F5F3FF";
 // ── FX → USD-equivalent (keep in sync with OrdersTab). Update as rates move. ──
 const FX = { USD: 1, EUR: 1.08, INR: 0.0117, "$": 1, "€": 1.08, "₹": 0.0117 };
 function toUSD(amount, currency) {
@@ -49,6 +54,7 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
   const [filterStage,setFilterStage]=useState("");
   const [filterAssignee,setFilterAssignee]=useState("");
   const [filterBand,setFilterBand]=useState("");   // "" = all deal sizes
+  const [onlyNoCompany,setOnlyNoCompany]=useState(false);  // data-gap filter
   const [sort,setSort]=useState({k:"created_at",d:-1});
   const [pendingLost,setPendingLost]=useState(null);   // {id, stage} awaiting a required reason
   const [remarkByEnq,setRemarkByEnq]=useState({});   // latest remark per enquiry_id
@@ -65,6 +71,12 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
     })();
     return ()=>{alive=false;};
   },[enquiries.length]);
+  // How many enquiries still have no company linked. Shown in the toolbar so
+  // the gap is visible without anyone going looking for it.
+  const noCompanyCount = useMemo(
+    () => enquiries.filter(e => !e.company_id).length,
+    [enquiries]
+  );
   // Apply a stage change, but force a reason first for closing stages.
   function requestStage(id,stage){
     if(REASON_STAGES.includes(stage)){ setPendingLost({id,stage}); return; }
@@ -100,6 +112,7 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
     return null;
   }
   const filtered=enquiries
+    .filter(e=>!onlyNoCompany||!e.company_id)
     .filter(e=>(!filterStage||e.stage===filterStage)&&(!filterAssignee||e.assigned_to===filterAssignee))
     .filter(e=>{
       if(!filterBand) return true;
@@ -125,10 +138,38 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
       <EnquiryForm onSave={async(row)=>{await onAdd(row);setShowForm(false);}} onClose={()=>setShowForm(false)} customers={customers} users={users}/>
     </Modal>}
     {pendingLost && <CloseReasonModal stage={pendingLost.stage} onCancel={()=>setPendingLost(null)} onConfirm={confirmLost}/>}
+
+    {/* Data-gap banner — only appears while enquiries are missing a company. */}
+    {noCompanyCount>0 && !onlyNoCompany && <div style={{
+      background:NOCO_BG,border:`1px solid ${NOCO}33`,borderLeft:`3px solid ${NOCO}`,
+      borderRadius:9,padding:"11px 15px",marginBottom:12,
+      display:"flex",alignItems:"center",gap:11,flexWrap:"wrap"}}>
+      <span style={{fontSize:15}}>🏢</span>
+      <div style={{flex:1,minWidth:220}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:NOCO}}>
+          {noCompanyCount} enquir{noCompanyCount===1?"y is":"ies are"} not linked to a company
+        </div>
+        <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+          These don't appear in company reports or follow-up campaigns. Open each one and pick or create its company.
+        </div>
+      </div>
+      <button onClick={()=>setOnlyNoCompany(true)} style={{
+        background:NOCO,color:"#fff",border:0,borderRadius:7,padding:"6px 13px",
+        fontSize:11.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+        Show them
+      </button>
+    </div>}
+
     <Card style={{overflow:"hidden"}}>
       <div style={{padding:"14px 18px",display:"flex",gap:10,alignItems:"center",borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
         <div style={{fontSize:18,fontWeight:700,color:C.ink}}>Enquiries <span style={{fontSize:12,color:C.blue,fontWeight:400}}>{filtered.length} records</span></div>
         <Btn label="+ New Enquiry" onClick={()=>setShowForm(true)} size="sm"/>
+        {noCompanyCount>0 && <button onClick={()=>setOnlyNoCompany(v=>!v)} style={{
+          background:onlyNoCompany?NOCO:NOCO_BG,color:onlyNoCompany?"#fff":NOCO,
+          border:`1px solid ${onlyNoCompany?NOCO:NOCO+"55"}`,borderRadius:7,
+          padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+          🏢 No company · {noCompanyCount}{onlyNoCompany?"  ✕":""}
+        </button>}
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{marginLeft:"auto",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 12px",color:C.ink,fontSize:12,outline:"none",width:170}}/>
         <select value={filterStage} onChange={e=>setFilterStage(e.target.value)} style={selStyle}><option value="">All Stages</option>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
         <select value={filterAssignee} onChange={e=>setFilterAssignee(e.target.value)} style={selStyle}><option value="">All Team</option>{users.filter(u=>u.active).map(u=><option key={u.id} value={u.name}>{u.name.split(" ")[0]}</option>)}</select>
@@ -155,13 +196,16 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
               const dC=daysUntil(e.expected_closure);
               const overR=dR!==null&&dR<=0&&!["PO Received","Lost"].includes(e.stage);
               const closeS=dC!==null&&dC<=7&&dC>=0&&!["PO Received","Lost"].includes(e.stage);
+              const noCo=!e.company_id;
               const prod=(e.products||[])[0]?.name||"—";
               const prod2=(e.products||[])[1]?.name;
               const val=resolveValue(e);
               const band=val?bandFor(toUSD(val.amount,val.currency)):null;
               const qc=e.quarter_ref?quarterColor(e.quarter_ref):null;
-              const rowBg=band?band.bg:(i%2===0?C.bg:"transparent");
-              const edge=overR?C.red:closeS?C.amber:"transparent";
+              // Missing company tints the row violet, but reminder/closure edges
+              // still win on the left border — those are time-critical.
+              const rowBg=noCo?NOCO_BG:(band?band.bg:(i%2===0?C.bg:"transparent"));
+              const edge=overR?C.red:closeS?C.amber:noCo?NOCO:"transparent";
               return <tr key={e.id} onClick={()=>onSelect(e)}
                 style={{background:rowBg,cursor:"pointer",borderLeft:`3px solid ${edge}`}}
                 onMouseEnter={ev=>ev.currentTarget.style.background=C.blueLt}
@@ -172,6 +216,10 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
                   <div style={{marginTop:3,display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
                     <span style={{fontSize:9,fontFamily:"monospace",fontWeight:600,color:C.muted,background:C.bg,border:`1px solid ${C.border}`,borderRadius:5,padding:"1px 5px",whiteSpace:"nowrap"}}>ENQ-{e.id}</span>
                     {e.quarter_ref&&<span style={{fontSize:9,fontFamily:"monospace",fontWeight:700,color:qc,background:`${qc}18`,border:`1px solid ${qc}44`,borderRadius:5,padding:"1px 5px",whiteSpace:"nowrap"}}>{e.quarter_ref}</span>}
+                    {noCo&&<span title="Not linked to a company — open this enquiry and pick or create one"
+                      style={{fontSize:9,fontWeight:700,color:"#fff",background:NOCO,borderRadius:5,padding:"1px 6px",whiteSpace:"nowrap"}}>
+                      🏢 ADD COMPANY
+                    </span>}
                   </div>
                 </td>
                 <td style={{padding:"9px 13px",color:C.muted,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prod}{prod2?`, ${prod2}`:""}</td>
@@ -207,7 +255,9 @@ function EnquiriesTab({enquiries,customers,users,quotations=[],onSelect,onStageC
             })}
           </tbody>
         </table>
-        {filtered.length===0&&<div style={{padding:36,textAlign:"center",color:C.muted,fontSize:12}}>No enquiries match your filters</div>}
+        {filtered.length===0&&<div style={{padding:36,textAlign:"center",color:C.muted,fontSize:12}}>
+          {onlyNoCompany?"🎉 Every enquiry is linked to a company":"No enquiries match your filters"}
+        </div>}
       </div>
     </Card>
   </div>;
