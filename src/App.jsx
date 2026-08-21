@@ -15,7 +15,8 @@ import { SampleForm }      from "./components/SampleForm.jsx";
 import { SampleDrawer }    from "./components/SampleDrawer.jsx";
 import { SampleFromEnquiry } from "./components/SampleFromEnquiry.jsx";   // ── Enquiry → Sample linkage ──
 import { RemindersTab }    from "./components/RemindersTab.jsx";
-import { CustomersTab }    from "./components/CustomersTab.jsx";
+import { CompaniesTab }    from "./components/CompaniesTab.jsx";   // ── Companies (the business) ──
+import { CustomersTab }    from "./components/CustomersTab.jsx";   // ── Contacts (the people) ──
 import { ProductsTab }     from "./components/ProductsTab.jsx";
 import { CategoriesTab }   from "./components/CategoriesTab.jsx";
 import { SuppliersTab }    from "./components/SuppliersTab.jsx";
@@ -39,7 +40,8 @@ export default function App() {
   const [loading, setLoading]       = useState(true);
   const [toast, setToast]           = useState(null);
   const [enquiries, setEnquiries]   = useState([]);
-  const [customers, setCustomers]   = useState([]);
+  const [companies, setCompanies]   = useState([]);   // ── the business ──
+  const [customers, setCustomers]   = useState([]);   // ── the people ──
   const [suppliers, setSuppliers]   = useState([]);
   const [users, setUsers]           = useState([]);
   const [tasks, setTasks]           = useState([]);
@@ -86,8 +88,8 @@ export default function App() {
       dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
       dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
       dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers"),
-      dbGet("daily_reports"), dbGet("samples")
-    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls]) => {
+      dbGet("daily_reports"), dbGet("samples"), dbGet("companies")
+    ]).then(([enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls, comps]) => {
       setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
       setTasks(tsks); setQuotations(quots); setThreads(thrs);
       setOrders(ords); setOrderItems(oItems);
@@ -96,6 +98,7 @@ export default function App() {
       setStatusHistory(hist); setSuppliers(sups);
       setDailyReports(drpts || []);
       setSamples(smpls || []);
+      setCompanies(comps || []);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -144,7 +147,7 @@ export default function App() {
           `A new enquiry has been logged and an RFQ is ready to send.`,
           `<b>Ref:</b> ENQ-${data.id}${row.quarter_ref ? ` · ${row.quarter_ref}` : ""}`,
           `<b>Customer:</b> ${row.customer_name} (${row.country || "—"})`,
-          `<b>Customer email:</b> ${row.customer_email || "—"}`,
+          `<b>Customer email:</b> ${row.email || "—"}`,
           `<b>Products:</b> ${enqProducts.map(p => p.name).join(", ") || "—"}`,
           `<b>Suppliers:</b> ${supplierLine}`,
           `<b>Assigned to:</b> ${row.assigned_to || "—"}`,
@@ -152,26 +155,10 @@ export default function App() {
         ], "Ingredientz CRM · Auto-notification"),
         text: `RFQ ready for ${row.customer_name} (ENQ-${data.id}). Suppliers: ${supplierLine}. Open the enquiry to review and send.`
       });
-      // ── Auto-acknowledgement to the customer (if we have their email) ──
-      const custEmail = row.customer_email
-        || customers.find(c => String(c.id) === String(row.customer_id))?.email
-        || "";
-      if (custEmail) {
-        const firstName = (row.contact_person || "").split(" ")[0];
-        sendEmail({
-          from: `Ingredientz <sales@mail.ingredientz.co>`,
-          to: custEmail,
-          subject: `Thank you for your enquiry — Ingredientz`,
-          html: buildEmailHtml("Thank you for your enquiry", "#1877F2", [
-            `${firstName ? `Dear ${firstName},` : "Hello,"}`,
-            `Thank you for reaching out to <b>Ingredientz</b>. We've received your enquiry${enqProducts.length ? ` for <b>${enqProducts.map(p => p.name).join(", ")}</b>` : ""} and our team is already looking into it.`,
-            `One of our specialists will get back to you shortly with the next steps. If you'd like to add anything in the meantime, simply reply to this email.`,
-            `Warm regards,<br>Team Ingredientz`
-          ], "Ingredientz · Nutraceutical Ingredients"),
-          text: `${firstName ? `Dear ${firstName},` : "Hello,"}\n\nThank you for reaching out to Ingredientz. We've received your enquiry and our team is already looking into it. We'll get back to you shortly with next steps.\n\nWarm regards,\nTeam Ingredientz`,
-          reply_to: "sales@ingredientz.co"
-        });
-      }
+      // ── Customer acknowledgement is sent by the notify_new_enquiry() trigger
+      //    on the enquiries table, which fires for EVERY enquiry regardless of
+      //    where it was entered. Do not send one from here as well, or the
+      //    customer receives two acknowledgements for the same enquiry.
     }
   }
 
@@ -278,7 +265,23 @@ export default function App() {
     }
   }
 
-  async function addCustomer(row)    { const data = await dbInsert("customers", row); if (data) { setCustomers(p => [data, ...p]); showToast(`✓ ${row.company} added`); } }
+  // ── Company ops (the business) ───────────────────────────────────────────────
+  async function addCompany(row) {
+    const data = await dbInsert("companies", row);
+    if (data) { setCompanies(p => [data, ...p]); showToast(`✓ ${row.name} added`); }
+  }
+  async function updateCompany(id, row) {
+    await dbUpdate("companies", id, row);
+    setCompanies(p => p.map(c => c.id === id ? { ...c, ...row } : c));
+    showToast("✓ Company updated");
+  }
+  async function deleteCompany(id) {
+    await dbDelete("companies", id);
+    setCompanies(p => p.filter(c => c.id !== id));
+  }
+
+  // ── Contact ops (the people) ─────────────────────────────────────────────────
+  async function addCustomer(row)    { const data = await dbInsert("customers", row); if (data) { setCustomers(p => [data, ...p]); showToast(`✓ ${row.contact || row.company} added`); } }
   async function updateCustomer(id, row) { await dbUpdate("customers", id, row); setCustomers(p => p.map(c => c.id === id ? { ...c, ...row } : c)); }
   async function deleteCustomer(id)  { await dbDelete("customers", id); setCustomers(p => p.filter(c => c.id !== id)); }
 
@@ -297,7 +300,10 @@ export default function App() {
 
   async function sendQuotationEmail(enq, form, grandTotal, users, attachments) {
     const sender = getSenderEmail(enq.assigned_to, users);
-    const custEmail = customers.find(c => c.id === enq.customer_id)?.email || "";
+    // Prefer the address recorded on the enquiry itself, then the linked contact.
+    const custEmail = enq.email
+      || customers.find(c => c.id === enq.customer_id)?.email
+      || "";
     const subject = QUOTATION_TEMPLATE.subject(enq.products || [], enq.customer_name, enq.id);
     const bodyText = QUOTATION_TEMPLATE.text(enq, form.items, grandTotal, form);
     const html = QUOTATION_TEMPLATE.html(enq, form.items, grandTotal, form);
@@ -838,13 +844,13 @@ export default function App() {
 
   async function handleRefresh() {
     setLoading(true);
-    const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls] = await Promise.all([
+    const [enqs, custs, usrs, tsks, quots, thrs, ords, oItems, spos, spoItems, invs, pays, ships, hist, sups, drpts, smpls, comps] = await Promise.all([
       dbGet("enquiries"), dbGet("customers"), dbGet("users"),
       dbGet("tasks"), dbGet("quotations"), dbGet("email_threads"),
       dbGet("orders"), dbGet("order_items"), dbGet("supplier_pos"),
       dbGet("supplier_po_items"), dbGet("order_invoices"), dbGet("order_payments"),
       dbGet("order_shipments"), dbGet("order_status_history"), dbGet("suppliers"),
-      dbGet("daily_reports"), dbGet("samples")
+      dbGet("daily_reports"), dbGet("samples"), dbGet("companies")
     ]);
     setEnquiries(enqs); setCustomers(custs); setUsers(usrs);
     setTasks(tsks); setQuotations(quots); setThreads(thrs);
@@ -854,6 +860,7 @@ export default function App() {
     setStatusHistory(hist); setSuppliers(sups);
     setDailyReports(drpts || []);
     setSamples(smpls || []);
+    setCompanies(comps || []);
     refreshPendingApprovals();
     setLoading(false);
     showToast("✓ Synced from Supabase");
@@ -867,6 +874,9 @@ export default function App() {
 
   // ── Samples badge: supplier requests logged but never sent ──
   const unsentSampleCount = samples.filter(s => s.supplier_id && !s.request_sent_at).length;
+
+  // ── Companies badge: auto-created and not yet confirmed by a human ──
+  const unverifiedCompanyCount = companies.filter(c => c.verified === false).length;
 
   // ── Team Desk: count reps who haven't filed today's Daily MIS (drives the tab badge) ──
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -883,7 +893,8 @@ export default function App() {
     { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
     { id: "samples",    label: "Samples",    icon: "🧫", badge: unsentSampleCount },
     { id: "reminders",  label: "Reminders",  icon: "🔔", badge: overdueReminderCount },
-    { id: "customers",  label: "Customers",  icon: "🏢", badge: 0 },
+    { id: "companies",  label: "Companies",  icon: "🏢", badge: unverifiedCompanyCount },
+    { id: "customers",  label: "Contacts",   icon: "👤", badge: 0 },
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
     { id: "categories", label: "Categories", icon: "📂", badge: 0 },
     { id: "suppliers",  label: "Suppliers",  icon: "🏭", badge: 0 },
@@ -957,6 +968,7 @@ export default function App() {
         <div style={{ padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
           {[
             ["Enquiries", enquiries.length, "white"],
+            ["Companies", companies.length, "#86efac"],
             ["Active", enquiries.filter(e => !["PO Received","Lost","No Response","Out of Scope"].includes(e.stage)).length, "#86efac"],
             ["Orders", orders.length, "#86efac"]
           ].map(([l, v, col]) => (
@@ -981,6 +993,7 @@ export default function App() {
         {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} users={users} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} onUpdateOrder={updateOrder} />}
         {activeTab === "samples"    && <SamplesTab samples={samples} enquiries={enquiries} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} onOpenEnquiry={enq => { setSelectedEnq(enq); setActiveTab("enquiries"); }} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
+        {activeTab === "companies"  && <CompaniesTab companies={companies} customers={customers} enquiries={enquiries} onAdd={addCompany} onUpdate={updateCompany} onDelete={deleteCompany} onOpenEnquiries={() => setActiveTab("enquiries")} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
         {activeTab === "categories" && <CategoriesTab />}
