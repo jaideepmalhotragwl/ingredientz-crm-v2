@@ -1,249 +1,155 @@
-/* =========================================================================
-   CompanyPicker.jsx — v2
-   ---------------------------------------------------------------------------
-   Place at: src/components/CompanyPicker.jsx   (Enquiry CRM repo)
+import { useState, useEffect, useRef, useMemo } from "react";
+import { supabase } from "../config.js";
+import { C } from "../constants.js";
 
-   CHANGES FROM v1
-     · Linked card now shows the AI snippet, product categories and the
-       products the company makes. search_companies() was already returning
-       all of it — v1 fetched and discarded it.
-     · Dropdown z-index raised and the wrapper made position:relative, so
-       results no longer cover the Country / Contact fields.
-     · Dropdown rows show category chips, so a match can be judged before
-       it is picked.
-
-   WHAT company_products MEANS
-     Products this company MAKES OR SELLS, scraped from their own website.
-     NOT what they have enquired about. For a brand, their retail range tells
-     you which ingredients they buy — that is the sales signal.
-   ========================================================================= */
-
-import { useState, useEffect, useRef } from 'react';
-import { C } from '../constants.js';
-import { searchCompanies, salesConfigured } from '../salesClient.js';
-
-export function CompanyPicker({ value, onChange, onSelect, onClear, selected }) {
-  const [results, setResults] = useState([]);
-  const [open,    setOpen]    = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const boxRef = useRef(null);
+/**
+ * CompanyPicker — search and select a company, or create one inline.
+ *
+ * Props:
+ *   value      company id (string|number) or "" 
+ *   onChange   (id, companyRow|null) => void
+ *   companies  optional preloaded array; fetched if omitted
+ *   allowCreate  default true — offers "Create …" when nothing matches
+ *   label      default "Company *"
+ *
+ * Never blocks the user: if the company genuinely doesn't exist yet,
+ * they create it here rather than abandoning the enquiry.
+ */
+export function CompanyPicker({ value, onChange, companies: preload, allowCreate = true, label = "Company *" }) {
+  const [rows, setRows] = useState(preload || []);
+  const [loading, setLoading] = useState(!preload);
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const boxRef = useRef(null), searchRef = useRef(null), listRef = useRef(null);
 
   useEffect(() => {
-    if (selected || !value || value.trim().length < 2) { setResults([]); return; }
-    let cancelled = false;
-    setLoading(true);
-    const t = setTimeout(async () => {
-      const rows = await searchCompanies(value, 8);
-      if (cancelled) return;
-      setResults(rows);
-      setLoading(false);
-      setOpen(rows.length > 0);
-    }, 300);
-    return () => { cancelled = true; clearTimeout(t); setLoading(false); };
-  }, [value, selected]);
+    if (preload) { setRows(preload); setLoading(false); return; }
+    let dead = false;
+    supabase.from("companies")
+      .select("id,name,domain,country,country_iso2,company_type,agent_id,status,verified")
+      .order("name")
+      .then(({ data }) => { if (!dead) { setRows(data || []); setLoading(false); } });
+    return () => { dead = true; };
+  }, [preload]);
 
   useEffect(() => {
-    function onDoc(e) {
-      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
+    if (!open) return;
+    const onDown = e => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
 
-  const inp = {
-    background: C.white, border: `1px solid ${C.border}`, borderRadius: 7,
-    padding: '7px 10px', color: C.ink, fontFamily: 'Arial,sans-serif',
-    fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box',
-  };
-  const label = {
-    fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
-    color: C.muted, textTransform: 'uppercase', marginBottom: 5,
-  };
-  const chip = (bg, fg, bd) => ({
-    fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 20,
-    background: bg, color: fg, border: `1px solid ${bd}`, whiteSpace: 'nowrap',
-  });
+  useEffect(() => { if (open && searchRef.current) searchRef.current.focus(); }, [open]);
+  useEffect(() => { setCursor(0); }, [q]);
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const row = listRef.current.children[cursor];
+    if (row) row.scrollIntoView({ block: "nearest" });
+  }, [cursor, open]);
 
-  // ── Linked ─────────────────────────────────────────────────────────────
-  if (selected) {
-    const cats  = selected.ai_categories || [];
-    const prods = selected.ai_products   || [];
-    const shown = showAll ? prods : prods.slice(0, 10);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return rows.slice(0, 400);
+    return rows.filter(c =>
+      (c.name || "").toLowerCase().includes(s) ||
+      (c.domain || "").toLowerCase().includes(s)
+    ).slice(0, 400);
+  }, [rows, q]);
 
-    return (
-      <div>
-        <div style={label}>Company *</div>
-        <div style={{
-          border: `1px solid ${C.blue}`, borderRadius: 7,
-          background: C.blueLt || '#EFF6FF', padding: '11px 12px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{selected.name}</div>
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                {[selected.company_type, selected.city, selected.country, selected.domain]
-                  .filter(Boolean).join(' · ') || 'no details yet'}
-              </div>
-              {selected.contact_count > 0 && (
-                <div style={{ fontSize: 10, color: C.blue, marginTop: 3 }}>
-                  {selected.contact_count} contact{selected.contact_count > 1 ? 's' : ''} already in the Sales CRM
-                </div>
-              )}
-              {selected.excluded && (
-                <div style={{ fontSize: 10, color: C.red, marginTop: 4, fontWeight: 600 }}>
-                  ⊘ Flagged off-ICP{selected.excluded_reason ? ` — ${selected.excluded_reason}` : ''}
-                </div>
-              )}
-              {selected.needs_review && (
-                <div style={{ fontSize: 10, color: '#B45309', marginTop: 4, fontWeight: 600 }}>
-                  ⚠ May be two companies sharing a name — verify before relying on this
-                </div>
-              )}
-            </div>
-            <button
-              onClick={onClear}
-              title="Detach and type manually"
-              style={{
-                background: 'transparent', border: `1px solid ${C.border}`,
-                borderRadius: 6, padding: '3px 9px', cursor: 'pointer',
-                color: C.muted, fontSize: 11, flexShrink: 0,
-              }}
-            >Change</button>
-          </div>
+  const selected = rows.find(c => String(c.id) === String(value)) || null;
+  const exact = filtered.some(c => (c.name || "").toLowerCase() === q.trim().toLowerCase());
 
-          {selected.ai_snippet && (
-            <div style={{
-              fontSize: 11, color: C.ink, lineHeight: 1.55, marginTop: 9,
-              paddingTop: 9, borderTop: '1px solid #BFD6F6', fontStyle: 'italic',
-            }}>
-              {selected.ai_snippet}
-            </div>
-          )}
-
-          {cats.length > 0 && (
-            <div style={{ marginTop: 9 }}>
-              <div style={{ ...label, marginBottom: 4 }}>Category</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {cats.map(c => <span key={c} style={chip('#FFFFFF', C.blue, '#BFD6F6')}>{c}</span>)}
-              </div>
-            </div>
-          )}
-
-          {prods.length > 0 && (
-            <div style={{ marginTop: 9 }}>
-              <div style={{ ...label, marginBottom: 4 }}>
-                Sells / makes · {prods.length}
-                <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, color: C.muted }}>
-                  (their range — not what they have enquired about)
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {shown.map(p => <span key={p} style={chip('#FFFBEB', '#B45309', '#FDE68A')}>{p}</span>)}
-                {prods.length > 10 && (
-                  <button
-                    onClick={() => setShowAll(s => !s)}
-                    style={{
-                      background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: C.blue, fontSize: 10, fontWeight: 700, padding: '3px 6px',
-                    }}
-                  >{showAll ? '− less' : `+${prods.length - 10} more`}</button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+  function pick(c) {
+    onChange(c ? c.id : "", c);
+    setOpen(false); setQ("");
   }
 
-  // ── Searching ──────────────────────────────────────────────────────────
-  return (
-    <div ref={boxRef} style={{ position: 'relative', zIndex: open ? 60 : 'auto' }}>
-      <div style={label}>
-        Company *
-        {!salesConfigured && (
-          <span style={{ color: C.muted, fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
-            (company lookup unavailable — manual entry)
-          </span>
-        )}
-      </div>
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onFocus={() => { if (results.length) setOpen(true); }}
-        placeholder={salesConfigured ? 'Start typing — e.g. Nexira' : 'e.g. Nexira SAS'}
-        style={inp}
-        autoComplete="off"
-      />
+  async function createNow() {
+    const name = q.trim();
+    if (!name) return;
+    setCreating(true);
+    const { data, error } = await supabase.from("companies")
+      .insert({ name, verified: false, created_by: "crm-inline", status: "active" })
+      .select().single();
+    setCreating(false);
+    if (error) { alert("Could not create company: " + error.message); return; }
+    setRows(r => [...r, data].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+    pick(data);
+  }
 
-      {loading && (
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>Searching company master…</div>
+  function onKey(e) {
+    if (e.key === "ArrowDown") { e.preventDefault(); setCursor(i => Math.min(i + 1, filtered.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setCursor(i => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filtered[cursor]) pick(filtered[cursor]);
+      else if (allowCreate && q.trim() && !exact) createNow();
+    }
+    else if (e.key === "Escape") setOpen(false);
+  }
+
+  const LABEL = { fontSize:10, fontWeight:700, letterSpacing:1.5, color:C.muted,
+                  textTransform:"uppercase", display:"block", marginBottom:5 };
+  const INP = { background:C.white, border:`1px solid ${C.border}`, borderRadius:7,
+                padding:"7px 10px", color:C.ink, fontFamily:"Arial,sans-serif",
+                fontSize:13, outline:"none", width:"100%" };
+
+  return (
+    <div ref={boxRef} style={{ position:"relative" }}>
+      <label style={LABEL}>{label}</label>
+      <button type="button" onClick={() => setOpen(o => !o)} disabled={loading}
+        style={{ ...INP, textAlign:"left", cursor: loading ? "wait" : "pointer",
+                 display:"flex", alignItems:"center", gap:7,
+                 color: selected ? C.ink : C.muted }}>
+        <span style={{ flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+          {selected ? selected.name : (loading ? "Loading…" : "Select company")}
+        </span>
+        {selected?.verified === false &&
+          <span style={{ fontSize:9, fontWeight:700, color:"#fff", background:"#7C3AED",
+                         borderRadius:4, padding:"1px 5px" }}>UNVERIFIED</span>}
+        <span style={{ color:C.faded, fontSize:9 }}>▾</span>
+      </button>
+
+      {selected && (
+        <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>
+          {selected.domain || "no domain"} · {selected.country || "no country"}
+          {selected.status !== "active" && <span style={{ color:C.red, fontWeight:700 }}> · {selected.status}</span>}
+        </div>
       )}
 
-      {open && results.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
-          background: C.white, border: `1px solid ${C.border}`, borderRadius: 8,
-          marginTop: 3, maxHeight: 340, overflowY: 'auto',
-          boxShadow: '0 10px 30px rgba(13,31,60,.18)',
-        }}>
-          {results.map(co => {
-            const cats = (co.ai_categories || []).slice(0, 3);
-            return (
-              <div
-                key={co.id}
-                onClick={() => { onSelect(co); setOpen(false); setShowAll(false); }}
-                style={{
-                  padding: '9px 12px', cursor: 'pointer',
-                  borderBottom: `1px solid ${C.border}`,
-                  opacity: co.excluded ? 0.72 : 1,
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = C.bg}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <span style={{
-                    fontSize: 12, fontWeight: 700, color: C.ink, flex: 1, minWidth: 0,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{co.name}</span>
-                  {co.excluded     && <span title={co.excluded_reason} style={{ color: C.red, fontSize: 11 }}>⊘</span>}
-                  {co.needs_review && <span title={co.review_reason}   style={{ color: '#B45309', fontSize: 11 }}>⚠</span>}
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 20, flexShrink: 0,
-                    background: co.match_tier === 1 ? '#DCFCE7' : co.match_tier === 2 ? '#EFF6FF' : C.bg,
-                    color:      co.match_tier === 1 ? '#065F46' : co.match_tier === 2 ? '#1D4ED8' : C.muted,
-                  }}>{co.match_label}</span>
-                </div>
-                <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
-                  {[co.company_type, co.country, co.domain].filter(Boolean).join(' · ') || 'not enriched yet'}
-                  {co.contact_count > 0 && ` · ${co.contact_count} contact${co.contact_count > 1 ? 's' : ''}`}
-                </div>
-                {cats.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                    {cats.map(c => (
-                      <span key={c} style={{
-                        fontSize: 9, padding: '1px 7px', borderRadius: 20,
-                        background: C.bg, color: C.muted, border: `1px solid ${C.border}`,
-                      }}>{c}</span>
-                    ))}
-                    {(co.ai_categories || []).length > 3 && (
-                      <span style={{ fontSize: 9, color: C.muted }}>+{co.ai_categories.length - 3}</span>
-                    )}
-                  </div>
-                )}
+      {open && (
+        <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:400, marginTop:4,
+                      background:C.white, border:`1px solid ${C.border}`, borderRadius:9,
+                      boxShadow:"0 8px 24px rgba(0,0,0,0.14)", overflow:"hidden", minWidth:280 }}>
+          <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
+            placeholder="Search company or domain…"
+            style={{ width:"100%", border:"none", borderBottom:`1px solid ${C.border}`,
+                     padding:"8px 10px", fontSize:13, outline:"none", fontFamily:"Arial,sans-serif" }}/>
+          <div ref={listRef} style={{ maxHeight:240, overflowY:"auto" }}>
+            {filtered.map((c, i) => (
+              <div key={c.id} onMouseEnter={() => setCursor(i)} onClick={() => pick(c)}
+                style={{ padding:"7px 10px", fontSize:12.5, cursor:"pointer",
+                         display:"flex", alignItems:"center", gap:8,
+                         background: i === cursor ? C.blueLt : C.white }}>
+                <span style={{ flex:1, color:C.ink, overflow:"hidden",
+                               textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</span>
+                {c.verified === false &&
+                  <span style={{ fontSize:8.5, fontWeight:700, color:"#7C3AED" }}>UNV</span>}
+                <span style={{ fontSize:10.5, color:C.faded }}>{c.domain || c.country || ""}</span>
               </div>
-            );
-          })}
-          <div
-            onClick={() => setOpen(false)}
-            style={{
-              padding: '8px 12px', cursor: 'pointer', fontSize: 11,
-              color: C.blue, textAlign: 'center', background: C.bg,
-            }}
-          >
-            None of these — keep "{value}" as typed
+            ))}
+            {filtered.length === 0 && !q.trim() &&
+              <div style={{ padding:11, fontSize:12, color:C.faded }}>No companies yet</div>}
           </div>
+          {allowCreate && q.trim() && !exact && (
+            <div onClick={createNow}
+              style={{ padding:"9px 10px", fontSize:12.5, cursor:"pointer", color:C.blue,
+                       fontWeight:600, borderTop:`1px solid ${C.border}`, background:"#FAFBFC" }}>
+              {creating ? "Creating…" : `+ Create "${q.trim()}"`}
+            </div>
+          )}
         </div>
       )}
     </div>
