@@ -878,6 +878,10 @@ export default function App() {
   // ── Companies badge: auto-created and not yet confirmed by a human ──
   const unverifiedCompanyCount = companies.filter(c => c.verified === false).length;
 
+  // ── Contacts badge: people with no email address. They cannot be quoted,
+  //    acknowledged, or included in a follow-up campaign.
+  const noEmailContactCount = customers.filter(c => !c.email || !String(c.email).trim()).length;
+
   // ── Team Desk: count reps who haven't filed today's Daily MIS (drives the tab badge) ──
   const todayStr = new Date().toISOString().slice(0, 10);
   const reportedTodaySet = new Set(
@@ -894,7 +898,7 @@ export default function App() {
     { id: "samples",    label: "Samples",    icon: "🧫", badge: unsentSampleCount },
     { id: "reminders",  label: "Reminders",  icon: "🔔", badge: overdueReminderCount },
     { id: "companies",  label: "Companies",  icon: "🏢", badge: unverifiedCompanyCount },
-    { id: "customers",  label: "Contacts",   icon: "👤", badge: 0 },
+    { id: "customers",  label: "Contacts",   icon: "👤", badge: noEmailContactCount },
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
     { id: "categories", label: "Categories", icon: "📂", badge: 0 },
     { id: "suppliers",  label: "Suppliers",  icon: "🏭", badge: 0 },
@@ -969,6 +973,7 @@ export default function App() {
           {[
             ["Enquiries", enquiries.length, "white"],
             ["Companies", companies.length, "#86efac"],
+            ["Contacts", customers.length, "#86efac"],
             ["Active", enquiries.filter(e => !["PO Received","Lost","No Response","Out of Scope"].includes(e.stage)).length, "#86efac"],
             ["Orders", orders.length, "#86efac"]
           ].map(([l, v, col]) => (
@@ -994,7 +999,7 @@ export default function App() {
         {activeTab === "samples"    && <SamplesTab samples={samples} enquiries={enquiries} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} onOpenEnquiry={enq => { setSelectedEnq(enq); setActiveTab("enquiries"); }} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "companies"  && <CompaniesTab companies={companies} customers={customers} enquiries={enquiries} onAdd={addCompany} onUpdate={updateCompany} onDelete={deleteCompany} onOpenEnquiries={() => setActiveTab("enquiries")} />}
-        {activeTab === "customers"  && <CustomersTab customers={customers} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
+        {activeTab === "customers"  && <CustomersTab customers={customers} companies={companies} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
         {activeTab === "categories" && <CategoriesTab />}
         {activeTab === "suppliers"  && <SuppliersTab />}
