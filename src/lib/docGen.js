@@ -11,13 +11,27 @@
 // The letterhead itself lives in src/lib/letterhead.js. This file only builds
 // the document body — do not put styling here.
 //
-// FIELD ASSUMPTIONS (adjust to your real `customers` / `suppliers` columns):
-//   customer.company, customer.country, customer.address, customer.city,
-//   customer.state, customer.postcode, customer.tax_id, customer.contact_person
-//   supplier.company, supplier.country, supplier.address, supplier.tax_id
+// v2 changes:
+//   · the issuing entity comes from orders.entity_code via entityForOrder(),
+//     NOT from the customer's country. Country routing sent every EU invoice to
+//     PROIN, which has no letterhead, so those invoices threw instead of
+//     printing. Ingredientz Inc sells into the EU; that is normal, not an edge
+//     case. `order.entity_country` — which the old supplier-PO path read — does
+//     not exist as a column and always fell through to the default.
+//   · the Bank details section prints the real block from the entity record.
+//     It used to print the literal string "[Bank name · A/C · IBAN/SWIFT — pull
+//     from entity settings]" onto the customer's invoice.
+//   · every public entry point returns { ok } / { error } instead of throwing,
+//     so a missing letterhead or bank block surfaces as a message rather than a
+//     blank screen.
+//
+// FIELD ASSUMPTIONS — these now exist on `companies` after the billing-fields
+// migration: address, city, state, postcode, country, tax_id, contact_person.
+// A blank address block means the company record hasn't been filled in; the
+// invoice will still render, minus the address lines.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { renderBrandedHtml, openBrandedDoc, entityForCountry } from "./letterhead.js";
+import { renderBrandedHtml, entityForOrder } from "./letterhead.js";
 import { fmtMoney, slugify } from "./orderUtils.js";
 import { fmtName } from "./nameFormat.js";
 import { supabase } from "../config.js";
@@ -58,6 +72,97 @@ function partiesHtml(fromLabel, from, toLabel, to) {
   </div>`;
 }
 
+// ── Bank details ───────────────────────────────────────────────────────
+// Which rails print depends on the invoice currency, because they are not
+// interchangeable. A USD invoice shows the domestic (ACH) and international-USD
+// options. A EUR/GBP/CAD invoice shows the FX route instead — different bank,
+// different SWIFT, and a mandatory remittance string without which the wire
+// gets rejected or misapplied. Printing the USD block on a EUR invoice is a
+// payment failure waiting to happen, so the two never appear together.
+function kvTable(rows) {
+  const body = rows.filter(([, v]) => v).map(([k, v]) =>
+    `<tr><td style="width:200px;color:#555;padding:1px 0;vertical-align:top">${esc(k)}</td><td style="padding:1px 0"><strong>${esc(v)}</strong></td></tr>`
+  ).join("");
+  return `<table style="font-size:8.5pt;border:0;margin:0 0 6px"><tbody>${body}</tbody></table>`;
+}
+
+function bankBlock(entity, reference, currency) {
+  const b = entity && entity.bank;
+  if (!b) {
+    throw new Error(
+      `${entity?.label || entity?.name || "This entity"} has no bank details configured. ` +
+      `Add its \`bank\` block in src/lib/letterhead.js before issuing invoices.`
+    );
+  }
+  const cur = String(currency || "USD").toUpperCase();
+  const isUsd = cur === "USD";
+  let out = `<h2 class="section">Bank details — payment in ${esc(cur)}</h2>`;
+
+  if (isUsd) {
+    const d = b.domestic || {};
+    const w = b.wireUsd || {};
+    if (d.routingAba || d.bankName) {
+      out += `<p style="font-size:8.5pt;font-weight:600;color:${NAVY};margin:4px 0 2px">Domestic US transfer (ACH or domestic wire)</p>`;
+      out += kvTable([
+        ["Beneficiary", b.beneficiary],
+        ["Beneficiary address", b.beneficiaryAddress],
+        ["Bank", d.bankName],
+        ["Bank address", d.bankAddress],
+        ["ABA routing number", d.routingAba],
+        ["Account number", b.accountNumber],
+        ["Account type", b.accountKind],
+      ]);
+    }
+    if (w.swift) {
+      out += `<p style="font-size:8.5pt;font-weight:600;color:${NAVY};margin:6px 0 2px">International wire in USD</p>`;
+      out += kvTable([
+        ["SWIFT / BIC", w.swift],
+        ["ABA routing number", w.routingAba],
+        ["Bank", w.bankName],
+        ["Bank address", w.bankAddress],
+        ["Beneficiary", b.beneficiary],
+        ["Account number", b.accountNumber],
+        ["Beneficiary address", b.beneficiaryAddress],
+      ]);
+    }
+  } else {
+    const f = b.wireFx;
+    if (!f || !f.swift) {
+      throw new Error(
+        `${entity.label || entity.name} has no foreign-currency wire details configured, ` +
+        `so a ${cur} invoice cannot be issued. Add \`bank.wireFx\` in src/lib/letterhead.js, ` +
+        `or invoice this order in USD.`
+      );
+    }
+    out += `<p style="font-size:8.5pt;font-weight:600;color:${NAVY};margin:4px 0 2px">International wire in ${esc(cur)}</p>`;
+    out += kvTable([
+      ["SWIFT / BIC", f.swift],
+      ["ABA routing number", f.routingAba],
+      ["Bank", f.bankName],
+      ["Bank address", f.bankAddress],
+      ["Beneficiary", f.beneficiaryName],
+      ["Account number", f.beneficiaryAccount],
+      ["Beneficiary address", f.beneficiaryAddress],
+    ]);
+    if (f.remittanceReference) {
+      out += `<p style="font-size:8.5pt;margin:2px 0 4px;padding:6px 8px;border:1px solid #d8b25a;background:#fdf8ec;color:#5a4306">
+        <strong>Required in the payment reference / memo field:</strong><br>
+        <span style="font-family:monospace;font-size:8.5pt">${esc(f.remittanceReference)}</span><br>
+        Without this line the funds cannot be credited to our account.
+      </p>`;
+    }
+    out += `<p style="font-size:7.5pt;color:#777;margin:2px 0">Foreign-currency wires may pass through intermediary banks that apply their own exchange rates and charges.</p>`;
+  }
+
+  if (reference) {
+    out += `<p style="font-size:8.5pt;color:#555;margin:2px 0">Please also quote <strong>${esc(reference)}</strong> so we can match your payment.</p>`;
+  }
+  if (b.note) {
+    out += `<p style="font-size:7.5pt;color:#777;margin:2px 0">${esc(b.note)}</p>`;
+  }
+  return out;
+}
+
 // ── Standard Terms & Conditions (printed on a second page of each document) ──
 const CUSTOMER_TERMS = [
   { n: 1, title: "Product Specifications", text: "All products are supplied in accordance with the agreed specifications, Certificate of Analysis (COA), and any approved pre-shipment sample, where applicable." },
@@ -95,6 +200,7 @@ function termsBlock(heading, terms) {
 // ── TEMPLATE: Customer Invoice / Proforma ────────────────────────────────────
 export function buildInvoiceHtml({ order, items, customer, entity, invoice, proforma = false }) {
   const cur = invoice?.currency || order.currency || "USD";
+  const ref = invoice?.invoice_number || order.order_number;
   const rows = (items || []).map((it, i) => `
     <tr>
       <td>${i + 1}</td>
@@ -109,11 +215,12 @@ export function buildInvoiceHtml({ order, items, customer, entity, invoice, prof
 
   return `
     <div class="doc-title">${proforma ? "PROFORMA INVOICE" : "INVOICE"}</div>
-    <div class="doc-ref">${esc(invoice?.invoice_number || order.order_number)} · Date: ${fmtDay(invoice?.invoice_date || today())}${invoice?.due_date ? ` · Due: ${fmtDay(invoice.due_date)}` : ""}</div>
+    <div class="doc-ref">${esc(ref)} · Date: ${fmtDay(invoice?.invoice_date || today())}${invoice?.due_date ? ` · Due: ${fmtDay(invoice.due_date)}` : ""}</div>
     ${partiesHtml("From", entity, "Bill To", customer || {})}
     <div style="font-size:8.5pt;color:#555;margin:4px 0 8px">
       Order Ref: <strong>${esc(order.order_number)}</strong>${order.customer_po_number ? ` · Customer PO: ${esc(order.customer_po_number)}` : ""}
     </div>
+    ${order.ship_to_address ? `<div style="font-size:8.5pt;color:#555;margin:0 0 8px"><strong>Ship to:</strong> ${esc(order.ship_to_address)}</div>` : ""}
     <table>
       <thead><tr><th style="width:34px">#</th><th>Product</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Line Total</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:#888">No line items</td></tr>`}</tbody>
@@ -123,8 +230,7 @@ export function buildInvoiceHtml({ order, items, customer, entity, invoice, prof
       <tr class="grand"><td>Total (${esc(cur)})</td><td class="num">${money(grand, cur)}</td></tr>
     </table>
     ${order.payment_terms ? `<p><strong>Payment terms:</strong> ${esc(order.payment_terms)}</p>` : ""}
-    <h2 class="section">Bank details</h2>
-    <p style="font-size:8.5pt;color:#555">[Bank name · A/C · IBAN/SWIFT — pull from entity settings]</p>
+    ${bankBlock(entity, ref, cur)}
     ${termsBlock("Standard Terms & Conditions", CUSTOMER_TERMS)}
   `;
 }
@@ -208,25 +314,39 @@ async function storeDoc(body, entity, prefix, fileName) {
 
 // ── PUBLIC: generate + store a Customer Invoice (returns { path, error }) ─────
 export async function generateCustomerInvoice({ order, items, customer, invoice, proforma = false }) {
-  const entity = entityForCountry(customer?.country);
-  const body = buildInvoiceHtml({ order, items, customer, entity, invoice, proforma });
+  const entity = entityForOrder(order);
+  let body;
+  try {
+    body = buildInvoiceHtml({ order, items, customer, entity, invoice, proforma });
+  } catch (e) {
+    // Missing bank block, most likely. Surface it instead of throwing into the
+    // caller's save path and losing the invoice row.
+    console.error("generateCustomerInvoice:", e);
+    return { error: e };
+  }
   const fileName = `${slugify(invoice?.invoice_number || order.order_number)}-invoice.html`;
   return storeDoc(body, entity, `orders/${order.order_number}/customer_invoice`, fileName);
-  // Caller (App.addInvoice) persists file_url on order_invoices + updates state.
+  // Caller (App.addInvoice) persists file_url on invoices + updates state.
 }
 
 // ── PUBLIC: generate + store a Supplier PO (returns { path, error }) ──────────
 export async function generateSupplierPO({ order, po, poItems, supplier, entity: entityOverride }) {
-  // POs are issued from the buying entity. Default Ingredientz Inc (US); pass `entity` to override.
-  const entity = entityOverride || entityForCountry(order?.entity_country || "United States");
-  const body = buildSupplierPOHtml({ order, po, poItems, supplier, entity });
+  // POs are issued from the buying entity, recorded on the order.
+  const entity = entityOverride || entityForOrder(order);
+  let body;
+  try {
+    body = buildSupplierPOHtml({ order, po, poItems, supplier, entity });
+  } catch (e) {
+    console.error("generateSupplierPO:", e);
+    return { error: e };
+  }
   const fileName = `${slugify(po?.supplier_po_number || order.order_number)}-po.html`;
   return storeDoc(body, entity, `orders/${order.order_number}/supplier_po/${slugify(po?.supplier_po_number)}`, fileName);
   // Caller (App.addSupplierPO) persists pdf_url on supplier_pos + updates state.
 }
 
 // ── PUBLIC: live view — renders the branded doc in a new tab (no storage, no
-// auto-print). The page carries a "Save as PDF" button. Always renders correctly.
+// auto-print). The page carries a "Save as PDF" button.
 function openRenderedDoc(body, entity) {
   let html;
   try {
@@ -240,10 +360,22 @@ function openRenderedDoc(body, entity) {
   return { ok: true };
 }
 export function previewInvoice({ order, items, customer, invoice, proforma = false }) {
-  const entity = entityForCountry(customer?.country);
-  return openRenderedDoc(buildInvoiceHtml({ order, items, customer, entity, invoice, proforma }), entity);
+  const entity = entityForOrder(order);
+  let body;
+  try {
+    body = buildInvoiceHtml({ order, items, customer, entity, invoice, proforma });
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  return openRenderedDoc(body, entity);
 }
 export function previewSupplierPO({ order, po, poItems, supplier }) {
-  const entity = entityForCountry(order?.entity_country || "United States");
-  return openRenderedDoc(buildSupplierPOHtml({ order, po, poItems, supplier, entity }), entity);
+  const entity = entityForOrder(order);
+  let body;
+  try {
+    body = buildSupplierPOHtml({ order, po, poItems, supplier, entity });
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  return openRenderedDoc(body, entity);
 }

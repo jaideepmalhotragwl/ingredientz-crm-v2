@@ -4,27 +4,29 @@
 // DocumentsTab (reformat + generate), docGen.js (invoices, proforma, supplier
 // POs), and anything added later — renders through this file.
 //
-// v2.1 — shared Ingredientz letterhead, table-based pagination:
-//   · header and footer are TEXT drawn from the entity record, not PNG images,
-//     so the address is selectable and searchable in the PDF and a phone number
-//     changes in exactly one place
-//   · header, footer and watermark repeat on EVERY page. The old version used
-//     position:absolute inside the sheet, so a two-page invoice lost its
-//     letterhead and ran off the bottom edge from page 2 onward
-//   · styling comes from letterheadPrintCss.js — do not restyle here
+// v2.2 — entity is chosen by the ORDER, not by the customer's country:
+//   · ENTITIES entries now carry a `bank` block, printed on invoices
+//   · entityForOrder(order) reads orders.entity_code ('INC' | 'PROIN')
+//   · entityForCountry / resolveLetterhead are UNCHANGED and still used by
+//     DocumentsTab's reformat flow, where a CoA genuinely does follow the
+//     customer's country. Do not point invoices at them: Ingredientz Inc sells
+//     into the EU, and country routing would send those invoices to PROIN,
+//     which throws because PROIN has no letterhead yet.
 //
-// Public API is unchanged, so docGen.js needs no edits:
-//   ENTITIES, resolveLetterhead, entityForCountry,
-//   renderBrandedHtml, renderCaptureHtml, openBrandedDoc
+// v2.1 — shared Ingredientz letterhead, table-based pagination:
+//   · header and footer are TEXT drawn from the entity record, not PNG images
+//   · header, footer and watermark repeat on EVERY page
+//   · styling comes from letterheadPrintCss.js — do not restyle here
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { LETTERHEAD_CSS } from "../letterhead/letterheadPrintCss.js";
 import { INZ_LOGO } from "../letterhead/logoBase64.js";
 
 // ── Entities ─────────────────────────────────────────────────────────────────
-// These values are printed on the document footer. Treat them as customer-facing.
+// These values are printed on documents. Treat them as customer-facing.
 export const ENTITIES = {
   INC: {
+    code: "INC",
     name: "Ingredientz Inc",
     address: "8 The Green, Ste A, Dover, DE 19901, United States of America",
     phone: "+1 270 721 5321",
@@ -34,14 +36,74 @@ export const ENTITIES = {
     logo: INZ_LOGO,
     watermarkImg: "/letterheads/watermark.png",
     stampImg: "/letterheads/stamp.png",
+
+    // Printed in the "Bank details" section of every customer invoice.
+    // Source: Mercury wire-details PDF for the Checking account.
+    //
+    // ⚠ ACCOUNT NUMBER CONFLICT — RESOLVE BEFORE INVOICING.
+    // The Mercury/Choice verification letter dated 13 Nov 2025 states account
+    // 202521216235. The wire-details PDF states 202501283000 (Checking). These
+    // are different accounts. The number below is taken from the wire-details
+    // PDF because that is the document that instructs senders. Confirm with
+    // Mercury which account receives customer payments and correct it here if
+    // needed — it appears in three places in this block, including inside the
+    // FX remittance string.
+    bank: {
+      beneficiary: "Ingredientz Inc",
+      beneficiaryAddress: "8 The Green, Suite A, Dover, DE 19901, USA",
+      accountNumber: "202501283000",
+      accountKind: "Checking",
+
+      // Domestic US wires and ACH.
+      domestic: {
+        bankName: "Choice Financial Group",
+        bankAddress: "4501 23rd Avenue S, Fargo, ND 58104, US",
+        routingAba: "091311229",
+      },
+
+      // International wire sent IN USD. Funds reach Choice directly.
+      wireUsd: {
+        swift: "CHFGUS44021",
+        bankName: "Choice Financial Group",
+        bankAddress: "4501 23rd Avenue S, Fargo, ND 58104, USA",
+        routingAba: "091311229",
+      },
+
+      // International wire sent in a FOREIGN CURRENCY (EUR, GBP, CAD…).
+      // Structurally different: the receiving bank is JP Morgan Chase, the
+      // beneficiary is Choice Financial Group, and the Ingredientz account
+      // appears ONLY inside the mandatory remittance reference. A customer
+      // given the USD details for a EUR wire will have it rejected or
+      // misapplied, which is why these print separately.
+      wireFx: {
+        swift: "CHASUS33XXX",
+        routingAba: "021000021",
+        bankName: "JP Morgan Chase Bank, N.A. — New York",
+        bankAddress: "383 Madison Avenue, Floor 23, New York, NY 10017, USA",
+        beneficiaryName: "Choice Financial Group",
+        beneficiaryAccount: "707567692",
+        beneficiaryAddress: "4501 23rd Ave S, Fargo, ND 58104, USA",
+        // Mercury marks this REQUIRED in the memo / reference field.
+        remittanceReference: "/FFC/202501283000/Ingredientz Inc/Dover, USA",
+      },
+
+      note: "Banking services provided by Choice Financial Group, Member FDIC.",
+    },
   },
+
   PROIN: {
-    // NOT LIVE. To switch the India entity on:
+    code: "PROIN",
+    // NOT LIVE. Europe-direct POs will land here eventually — Proingredientz
+    // receiving a PO straight from an EU customer is a real case, not a
+    // hypothetical. To switch this entity on:
     //   1. replace `address` with the full registered address (street, area,
     //      city, state, PIN) — "Mumbai, India" is not a billable address
     //   2. confirm phone and email
-    //   3. set `logo: INZ_LOGO`
-    // Nothing else needs to change; the letterhead is drawn from these fields.
+    //   3. set `logo: INZ_LOGO`, and add watermark/stamp paths if they differ
+    //   4. fill in the `bank` block below (INR + any EEFC/USD account), and add
+    //      GSTIN / IEC — an Indian export invoice needs both
+    // Nothing else needs to change; documents are drawn from these fields, and
+    // orders already carry entity_code so the routing is ready for it.
     name: "Proingredientz Connections Pvt. Ltd.",
     address: "Mumbai, India",
     phone: "+91 76666 01980",
@@ -51,17 +113,29 @@ export const ENTITIES = {
     logo: null,
     watermarkImg: null,
     stampImg: null,
+    bank: null,
   },
 };
 
 const INC_COUNTRIES = new Set(["United States", "Canada"]);
 
-// Customer country -> which entity's letterhead to bill from.
+// ── Country routing — for REFORMATTED documents only ─────────────────────────
+// A CoA or SDS reformatted for a customer follows that customer's country.
+// Invoices and POs do NOT use this. See entityForOrder below.
 export function resolveLetterhead(country) {
   return INC_COUNTRIES.has(country) ? "INC" : "PROIN";
 }
 export function entityForCountry(country) {
   return ENTITIES[resolveLetterhead(country)];
+}
+
+// ── Order routing — for INVOICES and SUPPLIER POs ────────────────────────────
+// The issuing entity is a commercial decision recorded on the order, not
+// something derived from where the customer happens to sit. Defaults to INC so
+// every existing order keeps working.
+export function entityForOrder(order) {
+  const code = (order && order.entity_code) || "INC";
+  return ENTITIES[code] || ENTITIES.INC;
 }
 
 // ── The A4 branded shell ─────────────────────────────────────────────────────
