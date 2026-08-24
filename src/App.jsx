@@ -674,8 +674,16 @@ export default function App() {
         });
         try {
           const { path, error } = await generateSupplierPO({ order, po: newPO, poItems: enriched, supplier });
-          if (!error && path) pdfPath = path; else showToast("⚠ PO saved — PDF generation failed", true);
-        } catch (e) { console.error("generateSupplierPO:", e); showToast("⚠ PO saved — PDF generation failed", true); }
+          if (error) {
+            console.error("generateSupplierPO:", error);
+            showToast(`⚠ PO saved — ${error.message || "PDF generation failed"}`, true);
+          } else if (path) {
+            pdfPath = path;
+          }
+        } catch (e) {
+          console.error("generateSupplierPO:", e);
+          showToast(`⚠ PO saved — ${e.message || "PDF generation failed"}`, true);
+        }
       }
       if (pdfPath) { await dbUpdate("supplier_pos", newPO.id, { pdf_url: pdfPath }); newPO.pdf_url = pdfPath; }
 
@@ -701,37 +709,84 @@ export default function App() {
     showToast("✓ Supplier PO updated");
   }
 
+  // ── Customer / supplier invoice ─────────────────────────────────────────────
+  // Inserts directly rather than through dbInsert so that a rejected insert
+  // surfaces Postgres's own message. dbInsert returns null on failure, which is
+  // why a failed save previously looked like nothing happening at all.
   async function addInvoice(invoiceRow, file, opts = {}) {
     try {
-      const newInv = await dbInsert("order_invoices", invoiceRow);
-      if (!newInv) { showToast("✗ Failed to create invoice", true); return null; }
+      const row = { ...invoiceRow, is_proforma: !!opts.proforma };
+
+      const { data: newInv, error: insErr } = await supabase
+        .from("order_invoices")
+        .insert(row)
+        .select()
+        .single();
+
+      if (insErr || !newInv) {
+        console.error("addInvoice insert:", insErr);
+        // A duplicate invoice number is the common one. The unique index on
+        // (invoice_type, invoice_number) is deliberate: the books own the
+        // series, and the CRM's job is to refuse the same number twice.
+        const msg = insErr?.code === "23505"
+          ? `Invoice ${invoiceRow.invoice_number} already exists`
+          : (insErr?.message || "unknown error");
+        showToast(`✗ Invoice not saved — ${msg}`, true);
+        return null;
+      }
 
       const order = orders.find(o => o.id === invoiceRow.order_id);
       const isCustomer = invoiceRow.invoice_type === "customer";
       let filePath = null;
+
       if (file) {
         const subfolder = isCustomer ? "customer_invoice" : "supplier_invoice";
-        const { path, error } = await uploadOrderDocument(file, `orders/${order?.order_number || invoiceRow.order_id}/${subfolder}/${newInv.invoice_number}`);
-        if (!error && path) filePath = path;
+        const { path, error } = await uploadOrderDocument(
+          file,
+          `orders/${order?.order_number || invoiceRow.order_id}/${subfolder}/${newInv.invoice_number}`
+        );
+        if (error) {
+          console.error("invoice upload:", error);
+          showToast("⚠ Invoice saved — file upload failed", true);
+        } else if (path) {
+          filePath = path;
+        }
       } else if (isCustomer && opts.autoPdf) {
         const items = orderItems.filter(i => i.order_id === invoiceRow.order_id);
         const customer = customers.find(c => c.id === order?.customer_id);
         try {
-          const { path, error } = await generateCustomerInvoice({ order, items, customer, invoice: newInv, proforma: opts.proforma });
-          if (!error && path) filePath = path; else showToast("⚠ Invoice saved — PDF generation failed", true);
-        } catch (e) { console.error("generateCustomerInvoice:", e); showToast("⚠ Invoice saved — PDF generation failed", true); }
+          const { path, error } = await generateCustomerInvoice({
+            order, items, customer, invoice: newInv, proforma: !!opts.proforma
+          });
+          if (error) {
+            console.error("generateCustomerInvoice:", error);
+            showToast(`⚠ Invoice saved — ${error.message || "PDF generation failed"}`, true);
+          } else if (path) {
+            filePath = path;
+          }
+        } catch (e) {
+          console.error("generateCustomerInvoice:", e);
+          showToast(`⚠ Invoice saved — ${e.message || "PDF generation failed"}`, true);
+        }
       }
-      if (filePath) { await dbUpdate("order_invoices", newInv.id, { file_url: filePath }); newInv.file_url = filePath; }
+
+      if (filePath) {
+        await dbUpdate("order_invoices", newInv.id, { file_url: filePath });
+        newInv.file_url = filePath;
+      }
 
       setInvoices(p => [newInv, ...p]);
-      if (isCustomer && invoiceRow.order_id && (order?.status === "Confirmed" || order?.status === "Suppliers Assigned")) {
+
+      if (isCustomer && invoiceRow.order_id &&
+          (order?.status === "Confirmed" || order?.status === "Suppliers Assigned")) {
         await updateOrderStatus(invoiceRow.order_id, "Invoiced");
       }
+
       showToast(`✓ Invoice ${newInv.invoice_number} logged`);
       return newInv;
     } catch (e) {
       console.error("addInvoice error:", e);
-      showToast("✗ Failed to log invoice", true);
+      showToast(`✗ Failed to log invoice — ${e.message || "unexpected error"}`, true);
       return null;
     }
   }
@@ -753,14 +808,17 @@ export default function App() {
       });
       showToast("Generating PO PDF…");
       const { path, error } = await generateSupplierPO({ order, po, poItems: items, supplier });
-      if (error || !path) { showToast("✗ PDF generation failed", true); return; }
+      if (error || !path) { showToast(`✗ ${error?.message || "PDF generation failed"}`, true); return; }
       await dbUpdate("supplier_pos", po.id, { pdf_url: path });
       setSupplierPOs(p => p.map(x => x.id === po.id ? { ...x, pdf_url: path } : x));
       showToast("✓ PO PDF regenerated");
-    } catch (e) { console.error("regenerateSupplierPODoc:", e); showToast("✗ PDF generation failed", true); }
+    } catch (e) { console.error("regenerateSupplierPODoc:", e); showToast(`✗ ${e.message || "PDF generation failed"}`, true); }
   }
 
   // Rebuild the branded PDF for an existing customer invoice.
+  // Passes is_proforma through: without it, regenerating a proforma silently
+  // produced a document headed "INVOICE" — a different commercial instrument —
+  // and overwrote the original file in place.
   async function regenerateInvoiceDoc(inv) {
     try {
       if (inv.invoice_type !== "customer") { showToast("Only customer invoices are auto-generated", true); return; }
@@ -768,41 +826,57 @@ export default function App() {
       const items = orderItems.filter(i => i.order_id === inv.order_id);
       const customer = customers.find(c => c.id === order?.customer_id);
       showToast("Generating invoice PDF…");
-      const { path, error } = await generateCustomerInvoice({ order, items, customer, invoice: inv });
-      if (error || !path) { showToast("✗ PDF generation failed", true); return; }
+      const { path, error } = await generateCustomerInvoice({
+        order, items, customer, invoice: inv, proforma: !!inv.is_proforma
+      });
+      if (error || !path) { showToast(`✗ ${error?.message || "PDF generation failed"}`, true); return; }
       await dbUpdate("order_invoices", inv.id, { file_url: path });
       setInvoices(p => p.map(x => x.id === inv.id ? { ...x, file_url: path } : x));
       showToast("✓ Invoice PDF regenerated");
-    } catch (e) { console.error("regenerateInvoiceDoc:", e); showToast("✗ PDF generation failed", true); }
+    } catch (e) { console.error("regenerateInvoiceDoc:", e); showToast(`✗ ${e.message || "PDF generation failed"}`, true); }
   }
 
+  // ── Payments ────────────────────────────────────────────────────────────────
+  // Reads inv.amount (there is no total_amount column on an invoice — the old
+  // code read undefined, parseFloat gave NaN, and `totalPaid >= NaN` is always
+  // false, so an invoice could never reach "paid"). Accepts either payment_type
+  // or type, because OrderDrawer filters on payment_type throughout.
   async function addPayment(paymentRow) {
     try {
       const newPay = await dbInsert("order_payments", paymentRow);
       if (!newPay) { showToast("✗ Failed to log payment", true); return null; }
       setPayments(p => [newPay, ...p]);
+
+      const payType = paymentRow.payment_type || paymentRow.type;
+
       if (paymentRow.invoice_id) {
         const inv = invoices.find(i => i.id === paymentRow.invoice_id);
         if (inv) {
           const allPaymentsForInv = [...payments, newPay].filter(p => p.invoice_id === paymentRow.invoice_id);
           const totalPaid = allPaymentsForInv.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-          const invTotal = parseFloat(inv.total_amount || 0);
+          const invTotal = parseFloat(inv.amount || 0);
           let newStatus = "unpaid";
-          if (totalPaid >= invTotal) newStatus = "paid";
+          if (invTotal > 0 && totalPaid >= invTotal) newStatus = "paid";
           else if (totalPaid > 0) newStatus = "partial";
           if (newStatus !== inv.status) await updateInvoice(inv.id, { status: newStatus });
         }
       }
-      if (paymentRow.type === "customer_payment_in" && paymentRow.order_id) {
+
+      if (payType === "customer_payment_in" && paymentRow.order_id) {
         const order = orders.find(o => o.id === paymentRow.order_id);
         if (order && order.status === "Invoiced") {
-          const allCustPayments = [...payments, newPay].filter(p => p.order_id === paymentRow.order_id && p.type === "customer_payment_in");
+          const allCustPayments = [...payments, newPay].filter(p =>
+            p.order_id === paymentRow.order_id &&
+            (p.payment_type || p.type) === "customer_payment_in"
+          );
           const totalReceived = allCustPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-          if (totalReceived >= parseFloat(order.total_amount || 0)) {
+          const orderTotal = parseFloat(order.total_amount || 0);
+          if (orderTotal > 0 && totalReceived >= orderTotal) {
             await updateOrderStatus(paymentRow.order_id, "Paid");
           }
         }
       }
+
       showToast("✓ Payment logged");
       return newPay;
     } catch (e) {
