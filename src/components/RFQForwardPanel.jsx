@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../config.js";
 import { C } from "../constants.js";
-import { sendEmail } from "../utils.js";
 import { RFQ_TEMPLATE } from "../templates.js";
 
+const SEND_FN = "https://eytoryygkxjslfvsqanl.supabase.co/functions/v1/thread-send";
 
 // ── SUPPLIER RFQ DRAWER (inside EnquiryDrawer) ────────────────────────────────
 function RFQForwardPanel({ enq, users, onThreadInserted }) {
@@ -11,13 +11,14 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
   const [mappings, setMappings] = useState([]);
   const [sending, setSending] = useState({});
   const [sent, setSent] = useState({});
+  const [failed, setFailed] = useState({});
   const [excludedIds, setExcludedIds] = useState(new Set());
   const [addedSuppliers, setAddedSuppliers] = useState([]);
   const [pickSup, setPickSup] = useState("");
+  const [replyAddr, setReplyAddr] = useState("");
 
 
   const PROCUREMENT_SENDER = "procurement@mail.ingredientz.co";
-  const PROCUREMENT_REPLY  = "procurement@ingredientz.co";
 
 
   useEffect(() => {
@@ -32,6 +33,15 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     }
     load();
   }, []);
+
+  // Per-enquiry supplier reply address. A supplier answering from qa@ or
+  // logistics@ still lands on the RFQ thread, because the address carries
+  // the enquiry id rather than relying on them keeping the subject intact.
+  useEffect(() => {
+    if (!enq?.id) return;
+    supabase.rpc("enquiry_reply_address", { p_enquiry_id: enq.id, p_party: "supplier" })
+      .then(({ data }) => setReplyAddr(data || ""));
+  }, [enq?.id]);
 
 
   const norm = s => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -97,39 +107,64 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
     if (!supplier?.contact_email) { alert("Supplier has no email."); return; }
     const key = supplier.id;
     setSending(s => ({ ...s, [key]: true }));
-    const subject = RFQ_TEMPLATE.subject(productsForSupplier, enq.id);
+    setFailed(f => ({ ...f, [key]: null }));
+
+    const subject  = RFQ_TEMPLATE.subject(productsForSupplier, enq.id);
     const bodyText = RFQ_TEMPLATE.text(supplier, productsForSupplier, enq);
-    const html = RFQ_TEMPLATE.html(supplier, productsForSupplier, enq);
-    await sendEmail({
-      from: `Ingredientz Procurement <${PROCUREMENT_SENDER}>`,
-      to: supplier.contact_email,
-      subject, html, text: bodyText,
-      reply_to: PROCUREMENT_REPLY,
-      bcc: ["sales@ingredientz.co", "procurement@ingredientz.co"]
-    });
-    // Log it
-    const threadRow = { enquiry_id: enq.id, customer_name: enq.customer_name, direction: "auto-sent", subject, body: bodyText, from_email: PROCUREMENT_SENDER, to_email: supplier.contact_email, sent_at: new Date().toISOString() };
-    const { data: tData } = await supabase.from("email_threads").insert(threadRow).select().single();
-    if (tData && onThreadInserted) onThreadInserted(tData);
-    // Schedule RFQ follow-up sequence: day 1, 3, 7
-    const now = new Date();
-    const seqRows = [1, 3, 7].map((days, idx) => ({
-      enquiry_id: enq.id, customer_name: enq.customer_name, sequence_type: "rfq", step: idx + 1,
-      supplier_contact_name: supplier.contact_name || null,
-      supplier_company: supplier.company || null,
-      scheduled_at: new Date(now.getTime() + days * 86400000).toISOString(),
-      to_email: supplier.contact_email, from_email: PROCUREMENT_SENDER,
-      body_preview: productsForSupplier.map(p => p.name).join(", ")
-    }));
-    await supabase.from("email_sequences")
-      .update({ cancelled_at: new Date().toISOString() })
-      .eq("enquiry_id", enq.id).eq("sequence_type", "rfq")
-      .eq("to_email", supplier.contact_email)
-      .is("sent_at", null).is("cancelled_at", null);
-    await supabase.from("email_sequences").insert(seqRows);
-    setSending(s => ({ ...s, [key]: false }));
-    setSent(s => ({ ...s, [key]: true }));
-    setTimeout(() => setSent(s => ({ ...s, [key]: false })), 4000);
+
+    try {
+      // Send AND log in one server-side call. Previously this sent via
+      // Resend and logged separately, and the log row carried no party —
+      // which is why RFQs surfaced in the customer thread.
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(SEND_FN, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || supabase.supabaseKey}`,
+        },
+        body: JSON.stringify({
+          enquiry_id: enq.id,
+          party: "supplier",              // ← keeps this out of the customer thread
+          to: supplier.contact_email,
+          cc: ["procurement@ingredientz.co"],
+          subject,
+          body: bodyText,
+          sent_by: enq.assigned_to || null,
+        }),
+      });
+      const out = await res.json();
+      if (!out.ok) throw new Error(out.error || "Send failed");
+
+      if (onThreadInserted) onThreadInserted({ enquiry_id: enq.id });
+
+      // Follow-up sequence: day 1, 3, 7
+      const now = new Date();
+      const seqRows = [1, 3, 7].map((days, idx) => ({
+        enquiry_id: enq.id, customer_name: enq.customer_name, sequence_type: "rfq", step: idx + 1,
+        supplier_contact_name: supplier.contact_name || null,
+        supplier_company: supplier.company || null,
+        scheduled_at: new Date(now.getTime() + days * 86400000).toISOString(),
+        to_email: supplier.contact_email, from_email: PROCUREMENT_SENDER,
+        body_preview: productsForSupplier.map(p => p.name).join(", ")
+      }));
+      await supabase.from("email_sequences")
+        .update({ cancelled_at: new Date().toISOString() })
+        .eq("enquiry_id", enq.id).eq("sequence_type", "rfq")
+        .eq("to_email", supplier.contact_email)
+        .is("sent_at", null).is("cancelled_at", null);
+      await supabase.from("email_sequences").insert(seqRows);
+
+      setSent(s => ({ ...s, [key]: true }));
+      setTimeout(() => setSent(s => ({ ...s, [key]: false })), 4000);
+    } catch (e) {
+      // Say so rather than showing a tick. A silent failure here means
+      // nobody chases a supplier who never received the RFQ.
+      console.error("RFQ send failed:", e);
+      setFailed(f => ({ ...f, [key]: e.message || "Send failed" }));
+    } finally {
+      setSending(s => ({ ...s, [key]: false }));
+    }
   }
 
 
@@ -145,11 +180,15 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: C.blue, textTransform: "uppercase" }}>Forward RFQ to Suppliers</div>
       {groups.length > 1 && <button onClick={sendAll} style={{ background: C.blue, color: "white", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 10, fontWeight: 700 }}>Send all ({groups.length})</button>}
     </div>
-    <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>Sending from: <span style={{ color: C.ink, fontWeight: 600 }}>{PROCUREMENT_SENDER}</span> · one email per supplier · customer hidden</div>
+    <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Sending from: <span style={{ color: C.ink, fontWeight: 600 }}>{PROCUREMENT_SENDER}</span> · one email per supplier · customer hidden</div>
+    {replyAddr && <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 14 }}>
+      Replies go to <span style={{ fontFamily: "monospace", color: C.ink }}>{replyAddr}</span> and appear
+      under the <b>Suppliers</b> tab of the Email Thread.
+    </div>}
 
 
     {groups.map(({ supplier, products: prods }) => (
-      <div key={supplier.id} style={{ background: C.bg, borderRadius: 10, padding: 14, border: `1px solid ${C.border}`, marginBottom: 10 }}>
+      <div key={supplier.id} style={{ background: C.bg, borderRadius: 10, padding: 14, border: `1px solid ${failed[supplier.id] ? C.red + "66" : C.border}`, marginBottom: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{supplier.company}</div>
@@ -164,6 +203,9 @@ function RFQForwardPanel({ enq, users, onThreadInserted }) {
               style={{ background: "transparent", border: `1px solid ${C.red}44`, borderRadius: 6, padding: "4px 8px", cursor: "pointer", color: C.red, fontSize: 11 }}>✕</button>
           </div>
         </div>
+        {failed[supplier.id] && <div style={{ fontSize: 11, color: C.red, marginBottom: 6 }}>
+          ✕ Not sent — {failed[supplier.id]}
+        </div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {prods.map((product, i) => (
             <div key={i} style={{ fontSize: 12, color: C.ink }}><span style={{ fontSize: 10, color: C.amber, fontWeight: 700, marginRight: 8 }}>▸</span>{product.name}{product.qty ? ` — ${product.qty} ${product.unit || "kg"}` : ""}</div>
