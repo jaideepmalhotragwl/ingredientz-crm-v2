@@ -1,154 +1,260 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../config.js";
 import { C } from "../constants.js";
-import { fmtDate } from "../utils.js";
+import { Btn } from "./ui/Btn.jsx";
 
-// ── EMAIL THREAD TAB ──────────────────────────────────────────────────────────
-function EmailThreadTab({enq,threads,onLogEmail}) {
-  const enqThreads=threads.filter(t=>t.enquiry_id===enq.id).sort((a,b)=>new Date(a.sent_at)-new Date(b.sent_at));
-  const [showLog,setShowLog]=useState(false);
-  const [logForm,setLogForm]=useState({direction:"received",subject:"",body:"",from_email:""});
-  const [saving,setSaving]=useState(false);
-  const [sequences,setSequences]=useState([]);
-  const [loadingSeq,setLoadingSeq]=useState(false);
+/**
+ * EmailThreadTab — the customer conversation and the supplier
+ * conversation, kept apart.
+ *
+ * They must never share a view. 92% of logged email volume is supplier
+ * RFQ traffic; mixed in, the customer conversation is unreadable — and
+ * a careless reply-all would send supplier pricing to the buyer.
+ */
 
-  useEffect(()=>{
-    loadSequences();
-  },[enq.id]);
+const SEND_FN = "https://eytoryygkxjslfvsqanl.supabase.co/functions/v1/thread-send";
 
-  async function loadSequences(){
-    setLoadingSeq(true);
-    const {data}=await supabase.from("email_sequences")
-      .select("*").eq("enquiry_id",enq.id)
-      .is("cancelled_at",null)
-      .order("scheduled_at",{ascending:true});
-    setSequences(data||[]);
-    setLoadingSeq(false);
-  }
-
-  async function cancelSequence(seqId){
-    if(!confirm("Cancel this scheduled follow-up?"))return;
-    await supabase.from("email_sequences").update({cancelled_at:new Date().toISOString()}).eq("id",seqId);
-    setSequences(p=>p.filter(s=>s.id!==seqId));
-  }
-
-  async function cancelAllPending(type){
-    if(!confirm("Cancel all pending " + type + " follow-ups for this enquiry?"))return;
-    await supabase.from("email_sequences")
-      .update({cancelled_at:new Date().toISOString()})
-      .eq("enquiry_id",enq.id).eq("sequence_type",type)
-      .is("sent_at",null).is("cancelled_at",null);
-    loadSequences();
-  }
-
-  const pendingSeqs=sequences.filter(s=>!s.sent_at);
-  const sentSeqs=sequences.filter(s=>s.sent_at);
-
-  function setLF(k,v){setLogForm(f=>({...f,[k]:v}));}
-  async function handleLog(){
-    if(!logForm.subject.trim()||!logForm.body.trim()){alert("Subject and body required.");return;}
-    setSaving(true);
-    await onLogEmail({enquiry_id:enq.id,customer_name:enq.customer_name,direction:logForm.direction,subject:logForm.subject,body:logForm.body,from_email:logForm.direction==="received"?(logForm.from_email||enq.contact_person||enq.customer_name):"sales@mail.ingredientz.co",to_email:logForm.direction==="received"?"sales@mail.ingredientz.co":(enq.customer_email||enq.contact_person),sent_at:new Date().toISOString()});
-    setLogForm({direction:"received",subject:"",body:"",from_email:""});
-    setShowLog(false);setSaving(false);
-  }
-
-  const inp={background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.ink,fontFamily:"Arial,sans-serif",fontSize:12,outline:"none",width:"100%"};
-
-  return <div style={{padding:"16px 0"}}>
-    {/* ── Scheduled Sequences Panel ─────────────────────────────────────── */}
-    {pendingSeqs.length>0&&<div style={{background:"#FFFBF0",border:"1px solid #FFE0A3",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"#F5A623",textTransform:"uppercase"}}>📅 Scheduled Follow-ups ({pendingSeqs.length})</div>
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        {pendingSeqs.map(s=>{
-          const typeLabel=s.sequence_type==="quotation"?"Customer":"Supplier";
-          const stepLabel=["1st","2nd","3rd"][s.step-1]||`Step ${s.step}`;
-          const dueDate=new Date(s.scheduled_at);
-          const isOverdue=dueDate<new Date();
-          return <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"white",borderRadius:7,padding:"7px 10px",border:"1px solid #FFE0A3"}}>
-            <div>
-              <span style={{fontSize:11,fontWeight:700,color:"#F5A623",marginRight:6}}>{typeLabel} {stepLabel}</span>
-              <span style={{fontSize:11,color:"#888"}}>→ {s.to_email}</span>
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:10,color:isOverdue?"#FA3E3E":"#888",fontWeight:isOverdue?700:400}}>
-                {isOverdue?"Sending soon…":fmtDate(s.scheduled_at)}
-              </span>
-              <button onClick={()=>cancelSequence(s.id)} style={{background:"none",border:"1px solid #ddd",borderRadius:5,padding:"2px 7px",cursor:"pointer",fontSize:10,color:"#888"}}>✕ Cancel</button>
-            </div>
-          </div>;
-        })}
-      </div>
-    </div>}
-
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:C.blue,textTransform:"uppercase"}}>Email Thread ({enqThreads.length})</div>
-      <button onClick={()=>setShowLog(!showLog)} style={{background:C.blue,color:"white",border:"none",borderRadius:7,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Log Email</button>
-    </div>
-    {showLog&&<div style={{background:C.bg,borderRadius:10,padding:14,border:`1px solid ${C.border}`,marginBottom:14}}>
-      <div style={{fontSize:10,fontWeight:700,color:C.ink,marginBottom:12}}>Log an Email</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          <label style={{fontSize:9,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Direction</label>
-          <select value={logForm.direction} onChange={e=>setLF("direction",e.target.value)} style={inp}>
-            <option value="received">Received (from customer)</option>
-            <option value="sent">Sent (by us)</option>
-          </select>
-        </div>
-        {logForm.direction==="received"&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
-          <label style={{fontSize:9,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>From</label>
-          <input value={logForm.from_email} onChange={e=>setLF("from_email",e.target.value)} placeholder={enq.contact_person||"Customer name"} style={inp}/>
-        </div>}
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
-        <label style={{fontSize:9,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Subject</label>
-        <input value={logForm.subject} onChange={e=>setLF("subject",e.target.value)} placeholder="e.g. Re: Quotation for Ashwagandha Extract" style={inp}/>
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
-        <label style={{fontSize:9,fontWeight:700,letterSpacing:1.5,color:C.muted,textTransform:"uppercase"}}>Email Body</label>
-        <textarea value={logForm.body} onChange={e=>setLF("body",e.target.value)} rows={4} placeholder="Paste or type the email content here…"
-          style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.ink,fontSize:12,outline:"none",resize:"vertical"}}/>
-      </div>
-      <div style={{display:"flex",gap:10}}>
-        <button onClick={handleLog} disabled={saving} style={{background:C.blue,color:"white",border:"none",borderRadius:7,padding:"8px 16px",cursor:saving?"not-allowed":"pointer",fontSize:12,fontWeight:700}}>{saving?"Saving…":"Save Email"}</button>
-        <button onClick={()=>setShowLog(false)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",color:C.muted,fontSize:12}}>Cancel</button>
-      </div>
-    </div>}
-    {enqThreads.length===0
-      ?<div style={{textAlign:"center",padding:"32px 16px",color:C.muted,fontSize:12}}>
-        No emails yet. Emails sent from the Quotation tab are auto-logged here.<br/>
-        <span style={{fontSize:11}}>Manually log received replies using + Log Email.</span>
-      </div>
-      :<div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {enqThreads.map(t=>{
-          const isSent=t.direction==="sent"||t.direction==="auto-sent";
-          return <div key={t.id} style={{background:isSent?C.blueLt:C.bg,border:`1px solid ${isSent?"#BFD6F6":C.border}`,borderRadius:10,padding:"12px 14px",marginLeft:isSent?24:0,marginRight:isSent?0:24}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:32,height:32,borderRadius:"50%",background:isSent?C.blue:"#E4E6EB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:isSent?"white":C.ink,flexShrink:0}}>
-                  {isSent?"I":"C"}
-                </div>
-                <div>
-                  <div style={{fontSize:12,fontWeight:700,color:C.ink}}>{isSent?(t.from_email||"sales@mail.ingredientz.co"):(t.from_email||enq.customer_name)}</div>
-                  <div style={{fontSize:10,color:C.muted}}>to {isSent?(t.to_email||enq.contact_person||enq.customer_name):"sales@mail.ingredientz.co"}</div>
-                </div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
-                <div style={{fontSize:10,color:C.muted}}>{fmtDate(t.sent_at)} {t.sent_at?new Date(t.sent_at).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}):""}</div>
-                {t.direction==="auto-sent"&&<span style={{background:C.blueLt,color:C.blue,border:`1px solid #BFD6F6`,borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:700}}>AUTO-SENT</span>}
-                {t.direction==="received"&&<span style={{background:"#E4E6EB",color:C.muted,border:`1px solid ${C.border}`,borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:700}}>RECEIVED</span>}
-              </div>
-            </div>
-            <div style={{fontSize:12,fontWeight:700,color:C.ink,marginBottom:6}}>{t.subject}</div>
-            <div style={{fontSize:12,color:C.muted,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:100,overflow:"hidden"}}>{t.body}</div>
-          </div>;
-        })}
-      </div>
-    }
-  </div>;
+function fmt(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function nameOf(raw) {
+  if (!raw) return "—";
+  const m = String(raw).match(/^\s*"?([^"<]+?)"?\s*</);
+  return m ? m[1].trim() : String(raw).split("@")[0];
+}
+
+function EmailThreadTab({ enq, threads = [], users = [], onThreadInserted }) {
+  const [view, setView]       = useState("customer");   // customer | supplier
+  const [rows, setRows]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [composing, setComposing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [err, setErr]         = useState("");
+  const [replyAddr, setReplyAddr] = useState({ customer: "", supplier: "" });
+  const [draft, setDraft] = useState({ to: "", subject: "", body: "" });
+  const bottomRef = useRef(null);
+
+  // Read from the DB rather than the threads prop: the prop is loaded
+  // once at app start and would not show a reply that arrived since.
+  useEffect(() => {
+    if (!enq?.id) return;
+    let dead = false;
+    setLoading(true);
+    supabase.from("email_threads")
+      .select("*")
+      .eq("enquiry_id", enq.id)
+      .order("sent_at", { ascending: true })
+      .then(({ data }) => { if (!dead) { setRows(data || []); setLoading(false); } });
+    return () => { dead = true; };
+  }, [enq?.id, threads.length]);
+
+  useEffect(() => {
+    if (!enq?.id) return;
+    Promise.all([
+      supabase.rpc("enquiry_reply_address", { p_enquiry_id: enq.id, p_party: "customer" }),
+      supabase.rpc("enquiry_reply_address", { p_enquiry_id: enq.id, p_party: "supplier" }),
+    ]).then(([c, s]) => setReplyAddr({ customer: c.data || "", supplier: s.data || "" }));
+  }, [enq?.id]);
+
+  const shown = useMemo(
+    () => rows.filter(r => (r.party || "customer") === view),
+    [rows, view]
+  );
+
+  const counts = useMemo(() => ({
+    customer: rows.filter(r => (r.party || "customer") === "customer").length,
+    supplier: rows.filter(r => r.party === "supplier").length,
+    review:   rows.filter(r => r.needs_review).length,
+  }), [rows]);
+
+  useEffect(() => {
+    if (bottomRef.current) bottomRef.current.scrollIntoView({ block: "nearest" });
+  }, [shown.length, view]);
+
+  function openCompose() {
+    // Reply to whoever wrote last on this side, else the enquiry contact.
+    const lastIn = [...shown].reverse().find(r => r.direction === "received");
+    const to = lastIn
+      ? (String(lastIn.from_email).match(/<([^>]+)>/)?.[1] || lastIn.from_email)
+      : (view === "customer" ? (enq.email || "") : "");
+    const last = shown[shown.length - 1];
+    const base = last?.subject || `${enq.customer_name} — ${(enq.products?.[0]?.name) || "enquiry"}`;
+    setDraft({ to, subject: base.replace(/^((re|fwd?):\s*)+/i, ""), body: "" });
+    setErr("");
+    setComposing(true);
+  }
+
+  async function send() {
+    if (!draft.to.trim())   { setErr("Recipient is required"); return; }
+    if (!draft.body.trim()) { setErr("Write a message first"); return; }
+    setSending(true); setErr("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(SEND_FN, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || supabase.supabaseKey}`,
+        },
+        body: JSON.stringify({
+          enquiry_id: enq.id,
+          party: view,
+          to: draft.to.split(",").map(s => s.trim()).filter(Boolean),
+          subject: draft.subject,
+          body: draft.body,
+          sent_by: enq.assigned_to || null,
+        }),
+      });
+      const out = await res.json();
+      if (!out.ok) throw new Error(out.error || "Send failed");
+      if (out.logged === false) setErr("Sent, but could not be logged — tell Jaideep");
+
+      const { data } = await supabase.from("email_threads")
+        .select("*").eq("enquiry_id", enq.id).order("sent_at", { ascending: true });
+      setRows(data || []);
+      onThreadInserted && onThreadInserted({});
+      setComposing(false);
+      setDraft({ to: "", subject: "", body: "" });
+    } catch (e) {
+      setErr(e.message || "Send failed");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (!enq) return null;
+
+  const tabBtn = (id, label, n) => (
+    <button key={id} onClick={() => { setView(id); setComposing(false); }}
+      style={{
+        flex: 1, background: view === id ? C.white : "transparent",
+        border: `1px solid ${view === id ? C.border : "transparent"}`,
+        borderBottom: view === id ? `2px solid ${id === "supplier" ? "#8E44AD" : C.blue}` : `1px solid ${C.border}`,
+        borderRadius: view === id ? "8px 8px 0 0" : 0,
+        padding: "8px 12px", cursor: "pointer", fontSize: 12,
+        fontWeight: view === id ? 700 : 500,
+        color: view === id ? (id === "supplier" ? "#8E44AD" : C.blue) : C.muted,
+      }}>
+      {label} <span style={{ fontWeight: 400, opacity: 0.7 }}>· {n}</span>
+    </button>
+  );
+
+  const inp = { width: "100%", background: C.white, border: `1px solid ${C.border}`,
+                borderRadius: 7, padding: "8px 10px", fontSize: 13,
+                fontFamily: "Arial,sans-serif", outline: "none" };
+
+  return <div style={{ paddingTop: 14 }}>
+
+    <div style={{ display: "flex", gap: 0, marginBottom: 12 }}>
+      {tabBtn("customer", "💬 Customer", counts.customer)}
+      {tabBtn("supplier", "🏭 Suppliers", counts.supplier)}
+    </div>
+
+    {counts.review > 0 && (
+      <div style={{ background: "#FFF8E7", border: "1px solid #FFE0A3", borderRadius: 8,
+                    padding: "8px 12px", marginBottom: 10, fontSize: 11.5, color: "#8a5a08" }}>
+        ⚠ {counts.review} message{counts.review > 1 ? "s" : ""} on this enquiry could not be matched
+        with confidence — check the sender before replying.
+      </div>
+    )}
+
+    <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8,
+                  padding: "8px 11px", marginBottom: 12, fontSize: 10.5, color: C.muted }}>
+      Replies to <b style={{ fontFamily: "monospace", color: C.ink }}>{replyAddr[view] || "…"}</b> land
+      here automatically. {view === "supplier"
+        ? "Suppliers see procurement@ingredientz.co."
+        : "Customers see sales@ingredientz.co."}
+    </div>
+
+    {!composing && (
+      <div style={{ marginBottom: 12 }}>
+        <Btn label={view === "customer" ? "✉ Write to customer" : "✉ Write to supplier"}
+             onClick={openCompose} size="sm"/>
+      </div>
+    )}
+
+    {composing && (
+      <div style={{ background: C.white, border: `1px solid ${C.blue}55`, borderRadius: 10,
+                    padding: 14, marginBottom: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          <div>
+            <label style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: C.muted,
+                            textTransform: "uppercase", display: "block", marginBottom: 4 }}>To</label>
+            <input style={inp} value={draft.to} onChange={e => setDraft(d => ({ ...d, to: e.target.value }))}
+              placeholder="buyer@company.com — comma-separate for several"/>
+          </div>
+          <div>
+            <label style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: C.muted,
+                            textTransform: "uppercase", display: "block", marginBottom: 4 }}>Subject</label>
+            <input style={inp} value={draft.subject}
+              onChange={e => setDraft(d => ({ ...d, subject: e.target.value }))}/>
+            <div style={{ fontSize: 9.5, color: C.faded, marginTop: 3 }}>
+              {view === "supplier" ? `[RFQ-${enq.id}]` : `[ENQ-${enq.id}]`} is added automatically.
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: C.muted,
+                            textTransform: "uppercase", display: "block", marginBottom: 4 }}>Message</label>
+            <textarea style={{ ...inp, minHeight: 150, resize: "vertical", lineHeight: 1.6 }}
+              value={draft.body} onChange={e => setDraft(d => ({ ...d, body: e.target.value }))}
+              placeholder="Write normally — blank lines become paragraphs."/>
+          </div>
+          {err && <div style={{ fontSize: 11.5, color: C.red }}>{err}</div>}
+          <div style={{ display: "flex", gap: 9 }}>
+            <Btn label={sending ? "Sending…" : "Send"} onClick={send} disabled={sending} size="sm"/>
+            <Btn label="Cancel" onClick={() => setComposing(false)} variant="ghost" size="sm"/>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {loading && <div style={{ padding: 24, textAlign: "center", color: C.muted, fontSize: 12 }}>Loading…</div>}
+
+    {!loading && shown.length === 0 && (
+      <div style={{ padding: 30, textAlign: "center", color: C.muted, fontSize: 12,
+                    background: C.bg, borderRadius: 10, border: `1px dashed ${C.border}` }}>
+        No {view} emails yet on this enquiry.
+      </div>
+    )}
+
+    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+      {shown.map(m => {
+        const out = m.direction !== "received";
+        const accent = view === "supplier" ? "#8E44AD" : C.blue;
+        return (
+          <div key={m.id} style={{
+            background: out ? C.white : "#F7FAFF",
+            border: `1px solid ${out ? C.border : accent + "33"}`,
+            borderLeft: `3px solid ${out ? C.border : accent}`,
+            borderRadius: 9, padding: "11px 13px",
+          }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: C.ink }}>
+                {out ? "We sent" : nameOf(m.from_email)}
+              </span>
+              <span style={{ fontSize: 10, color: C.faded }}>
+                {out ? `→ ${m.to_email}` : ""}
+              </span>
+              <span style={{ marginLeft: "auto", fontSize: 10, color: C.faded }}>{fmt(m.sent_at)}</span>
+              {m.needs_review && <span style={{ fontSize: 8.5, fontWeight: 700, color: "#8a5a08",
+                background: "#FFF8E7", border: "1px solid #FFE0A3", borderRadius: 4,
+                padding: "1px 5px" }}>UNMATCHED</span>}
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, marginBottom: 5 }}>{m.subject}</div>
+            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap",
+                          maxHeight: 200, overflowY: "auto" }}>
+              {(m.body || "").replace(/<[^>]+>/g, "").trim() || "—"}
+            </div>
+            {m.sent_by && <div style={{ fontSize: 9.5, color: C.faded, marginTop: 5 }}>by {m.sent_by}</div>}
+          </div>
+        );
+      })}
+      <div ref={bottomRef}/>
+    </div>
+  </div>;
+}
 
 export { EmailThreadTab };
