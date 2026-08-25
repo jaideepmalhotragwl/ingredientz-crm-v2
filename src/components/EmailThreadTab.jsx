@@ -26,6 +26,34 @@ function nameOf(raw) {
   return m ? m[1].trim() : String(raw).split("@")[0];
 }
 
+/**
+ * What actually happened to a message we sent. Fed by the email-status
+ * webhook, so it reflects Resend's own record rather than an assumption
+ * that "sent" means "arrived".
+ */
+function DeliveryPill({ status, opened }) {
+  const map = {
+    sent:       ["#8A8D91", "#F0F1F3", "sent"],
+    delivered:  ["#1E7A46", "#E6F4EC", opened ? "opened" : "delivered"],
+    bounced:    ["#E41E3F", "#FFF0F0", "bounced"],
+    complained: ["#E41E3F", "#FFF0F0", "spam"],
+    failed:     ["#E41E3F", "#FFF0F0", "failed"],
+  };
+  const [c, b, label] = map[status || "sent"] || map.sent;
+  const title = {
+    sent:       "Handed to Resend — no delivery confirmation yet",
+    delivered:  opened ? "Delivered and opened" : "Delivered to the recipient's server",
+    bounced:    "Rejected. The address may be dead — check before resending.",
+    complained: "Marked as spam by the recipient. Do not email again.",
+    failed:     "Could not be sent",
+  }[status || "sent"];
+  return <span title={title} style={{
+    fontSize: 8.5, fontWeight: 700, color: c, background: b,
+    border: `1px solid ${c}44`, borderRadius: 4, padding: "1px 5px",
+    textTransform: "uppercase", letterSpacing: 0.5,
+  }}>{label}</span>;
+}
+
 function EmailThreadTab({ enq, threads = [], users = [], onThreadInserted }) {
   const [view, setView]       = useState("customer");   // customer | supplier
   const [rows, setRows]       = useState([]);
@@ -238,6 +266,7 @@ function EmailThreadTab({ enq, threads = [], users = [], onThreadInserted }) {
               <span style={{ fontSize: 10, color: C.faded }}>
                 {out ? `→ ${m.to_email}` : ""}
               </span>
+              {out && <DeliveryPill status={m.delivery_status} opened={m.opened}/>}
               <span style={{ marginLeft: "auto", fontSize: 10, color: C.faded }}>{fmt(m.sent_at)}</span>
               {m.needs_review && <span style={{ fontSize: 8.5, fontWeight: 700, color: "#8a5a08",
                 background: "#FFF8E7", border: "1px solid #FFE0A3", borderRadius: 4,
