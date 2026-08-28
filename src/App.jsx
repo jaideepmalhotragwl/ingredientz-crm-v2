@@ -15,6 +15,7 @@ import { SampleForm }      from "./components/SampleForm.jsx";
 import { SampleDrawer }    from "./components/SampleDrawer.jsx";
 import { SampleFromEnquiry } from "./components/SampleFromEnquiry.jsx";   // ── Enquiry → Sample linkage ──
 import { RemindersTab }    from "./components/RemindersTab.jsx";
+import { ActivityAnalysis } from "./components/ActivityAnalysis.jsx";   // ── List ⇄ Analysis on Enquiries and Orders ──
 import { CompaniesTab }    from "./components/CompaniesTab.jsx";   // ── Companies (the business) ──
 import { CustomersTab }    from "./components/CustomersTab.jsx";   // ── Contacts (the people) ──
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -31,6 +32,21 @@ import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
 import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
 import { QualityApp }      from "./quality/QualityApp.jsx";       // ── Quality Portal ──
+
+// ── List ⇄ Analysis switch, shared by the Enquiries and Orders tabs ──────────
+function ViewToggle({ value, onChange }) {
+  return <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+    {[["list", "📋 List"], ["analysis", "📊 Analysis"]].map(([id, label]) => (
+      <button key={id} onClick={() => onChange(id)} style={{
+        background: value === id ? C.blueLt : "transparent",
+        border: `1px solid ${value === id ? C.blue : C.border}`,
+        borderRadius: 8, padding: "6px 15px", cursor: "pointer", fontSize: 12,
+        fontWeight: value === id ? 700 : 500,
+        color: value === id ? C.blue : C.muted,
+      }}>{label}</button>
+    ))}
+  </div>;
+}
 
 // ── The enquiry stage that triggers the sample-details modal ──────────────────
 const SAMPLE_TRIGGER_STAGE = "Sample Under Process";
@@ -58,6 +74,8 @@ export default function App() {
   const [statusHistory, setStatusHistory] = useState([]);
   const [samples, setSamples]       = useState([]);
   const [activeTab, setActiveTab]   = useState("dashboard");
+  const [enqView, setEnqView]       = useState("list");    // list | analysis
+  const [ordView, setOrdView]       = useState("list");
   const [selectedEnq, setSelectedEnq] = useState(null);
   const [orderFormOpen, setOrderFormOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -1068,8 +1086,18 @@ export default function App() {
           </div>
         </div>
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} orders={orders} />}
-        {activeTab === "enquiries"  && <EnquiriesTab enquiries={enquiries} customers={customers} users={users} quotations={quotations} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
-        {activeTab === "orders"     && <OrdersTab orders={orders} customers={customers} users={users} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} onUpdateOrder={updateOrder} />}
+        {activeTab === "enquiries"  && <>
+          <ViewToggle value={enqView} onChange={setEnqView}/>
+          {enqView === "list"
+            ? <EnquiriesTab enquiries={enquiries} customers={customers} users={users} quotations={quotations} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />
+            : <ActivityAnalysis mode="enquiries" records={enquiries} companies={companies} onOpenCompany={() => setActiveTab("companies")} />}
+        </>}
+        {activeTab === "orders"     && <>
+          <ViewToggle value={ordView} onChange={setOrdView}/>
+          {ordView === "list"
+            ? <OrdersTab orders={orders} customers={customers} users={users} onSelect={o => setSelectedOrder(o)} onNew={() => setOrderFormOpen(true)} onUpdateOrder={updateOrder} />
+            : <ActivityAnalysis mode="orders" records={orders} companies={companies} onOpenCompany={() => setActiveTab("companies")} />}
+        </>}
         {activeTab === "samples"    && <SamplesTab samples={samples} enquiries={enquiries} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} onOpenEnquiry={enq => { setSelectedEnq(enq); setActiveTab("enquiries"); }} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
         {activeTab === "companies"  && <CompaniesTab companies={companies} customers={customers} enquiries={enquiries} onAdd={addCompany} onUpdate={updateCompany} onDelete={deleteCompany} onOpenEnquiries={() => setActiveTab("enquiries")} />}
