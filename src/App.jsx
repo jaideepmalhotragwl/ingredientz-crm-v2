@@ -16,6 +16,7 @@ import { SampleDrawer }    from "./components/SampleDrawer.jsx";
 import { SampleFromEnquiry } from "./components/SampleFromEnquiry.jsx";   // ── Enquiry → Sample linkage ──
 import { RemindersTab }    from "./components/RemindersTab.jsx";
 import { ActivityAnalysis } from "./components/ActivityAnalysis.jsx";   // ── List ⇄ Analysis on Enquiries and Orders ──
+import { FollowupsTab }    from "./components/FollowupsTab.jsx";        // ── Monthly follow-up campaign ──
 import { CompaniesTab }    from "./components/CompaniesTab.jsx";   // ── Companies (the business) ──
 import { CustomersTab }    from "./components/CustomersTab.jsx";   // ── Contacts (the people) ──
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -83,6 +84,7 @@ export default function App() {
   const [selectedSample, setSelectedSample] = useState(null);
   const [sampleFromEnq, setSampleFromEnq] = useState(null);   // ── enquiry awaiting sample details ──
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [followupRuns, setFollowupRuns] = useState([]);
 
   async function refreshPendingApprovals() {
     const [sup, prod] = await Promise.all([
@@ -92,7 +94,13 @@ export default function App() {
     setPendingApprovals((sup.count || 0) + (prod.count || 0));
   }
 
-  useEffect(() => { refreshPendingApprovals(); }, []);
+  async function refreshFollowupRuns() {
+    const { data } = await supabase.from("followup_runs")
+      .select("id,status,auto_hold_reason").order("period", { ascending: false }).limit(12);
+    setFollowupRuns(data || []);
+  }
+
+  useEffect(() => { refreshPendingApprovals(); refreshFollowupRuns(); }, []);
 
   function showToast(msg, err = false) {
     setToast({ msg, err });
@@ -954,6 +962,7 @@ export default function App() {
     setSamples(smpls || []);
     setCompanies(comps || []);
     refreshPendingApprovals();
+    refreshFollowupRuns();
     setLoading(false);
     showToast("✓ Synced from Supabase");
   }
@@ -983,12 +992,20 @@ export default function App() {
     u => (u.active !== false) && u.name && !reportedTodaySet.has(u.name)
   ).length;
 
+  // ── Follow-ups badge: a run waiting on a human. Either it is
+  //    scheduled and has not gone yet, or something held it
+  //    automatically and it will never go until someone looks.
+  const followupNeedsReview = followupRuns.filter(
+    r => r.status === "scheduled" || (r.status === "held" && r.auto_hold_reason)
+  ).length;
+
   const TABS = [
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
     { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
     { id: "samples",    label: "Samples",    icon: "🧫", badge: unsentSampleCount },
     { id: "reminders",  label: "Reminders",  icon: "🔔", badge: overdueReminderCount },
+    { id: "followups",  label: "Follow-ups", icon: "📮", badge: followupNeedsReview },
     { id: "companies",  label: "Companies",  icon: "🏢", badge: unverifiedCompanyCount },
     { id: "customers",  label: "Contacts",   icon: "👤", badge: noEmailContactCount },
     { id: "products",   label: "Products",   icon: "🧪", badge: 0 },
@@ -1100,6 +1117,7 @@ export default function App() {
         </>}
         {activeTab === "samples"    && <SamplesTab samples={samples} enquiries={enquiries} onSelect={s => setSelectedSample(s)} onNew={() => setSampleFormOpen(true)} onOpenEnquiry={enq => { setSelectedEnq(enq); setActiveTab("enquiries"); }} />}
         {activeTab === "reminders"  && <RemindersTab enquiries={enquiries} onSelect={e => { setSelectedEnq(e); setActiveTab("enquiries"); }} />}
+        {activeTab === "followups"  && <FollowupsTab onOpenCompany={() => setActiveTab("companies")} />}
         {activeTab === "companies"  && <CompaniesTab companies={companies} customers={customers} enquiries={enquiries} onAdd={addCompany} onUpdate={updateCompany} onDelete={deleteCompany} onOpenEnquiries={() => setActiveTab("enquiries")} />}
         {activeTab === "customers"  && <CustomersTab customers={customers} companies={companies} onAdd={addCustomer} onUpdate={updateCustomer} onDelete={deleteCustomer} />}
         {activeTab === "products"   && <ProductsTab />}
