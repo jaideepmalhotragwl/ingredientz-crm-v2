@@ -17,6 +17,7 @@ import { SampleFromEnquiry } from "./components/SampleFromEnquiry.jsx";   // ─
 import { RemindersTab }    from "./components/RemindersTab.jsx";
 import { ActivityAnalysis } from "./components/ActivityAnalysis.jsx";   // ── List ⇄ Analysis on Enquiries and Orders ──
 import { FollowupsTab }    from "./components/FollowupsTab.jsx";        // ── Monthly follow-up campaign ──
+import { ProductAnalysis } from "./components/ProductAnalysis.jsx";     // ── What people actually ask for ──
 import { CompaniesTab }    from "./components/CompaniesTab.jsx";   // ── Companies (the business) ──
 import { CustomersTab }    from "./components/CustomersTab.jsx";   // ── Contacts (the people) ──
 import { ProductsTab }     from "./components/ProductsTab.jsx";
@@ -34,10 +35,12 @@ import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tr
 import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
 import { QualityApp }      from "./quality/QualityApp.jsx";       // ── Quality Portal ──
 
-// ── List ⇄ Analysis switch, shared by the Enquiries and Orders tabs ──────────
-function ViewToggle({ value, onChange }) {
+// ── View switch, shared by the Enquiries and Orders tabs ─────────────────────
+//    Enquiries gets a third view: the same data grouped by product
+//    rather than by customer, which answers a different question.
+function ViewToggle({ value, onChange, options }) {
   return <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-    {[["list", "📋 List"], ["analysis", "📊 Analysis"]].map(([id, label]) => (
+    {(options || [["list", "📋 List"], ["analysis", "📊 By customer"]]).map(([id, label]) => (
       <button key={id} onClick={() => onChange(id)} style={{
         background: value === id ? C.blueLt : "transparent",
         border: `1px solid ${value === id ? C.blue : C.border}`,
@@ -1104,10 +1107,14 @@ export default function App() {
         </div>
         {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} orders={orders} />}
         {activeTab === "enquiries"  && <>
-          <ViewToggle value={enqView} onChange={setEnqView}/>
-          {enqView === "list"
-            ? <EnquiriesTab enquiries={enquiries} customers={customers} users={users} quotations={quotations} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />
-            : <ActivityAnalysis mode="enquiries" records={enquiries} companies={companies} onOpenCompany={() => setActiveTab("companies")} />}
+          <ViewToggle value={enqView} onChange={setEnqView}
+            options={[["list","📋 List"],["analysis","📊 By customer"],["products","🧪 By product"]]}/>
+          {enqView === "list" &&
+            <EnquiriesTab enquiries={enquiries} customers={customers} users={users} quotations={quotations} onSelect={setSelectedEnq} onStageChange={stageChange} onDelete={deleteEnquiry} onAdd={addEnquiry} />}
+          {enqView === "analysis" &&
+            <ActivityAnalysis mode="enquiries" records={enquiries} companies={companies} onOpenCompany={() => setActiveTab("companies")} />}
+          {enqView === "products" &&
+            <ProductAnalysis onOpenCompany={() => setActiveTab("companies")} />}
         </>}
         {activeTab === "orders"     && <>
           <ViewToggle value={ordView} onChange={setOrdView}/>
