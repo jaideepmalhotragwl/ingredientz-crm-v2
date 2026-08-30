@@ -174,17 +174,36 @@ function EnquiryForm({onSave,onClose,customers,users,initial=null}) {
       enquiry_date:form.enquiry_date||new Date().toISOString().split("T")[0],
       created_by:form.assigned_to||"Jaideep",
     };
-    // Auto-create any products not yet in DB
-    const { data: existingProducts } = await supabase.from("products").select("name");
-    const existingNames = new Set((existingProducts || []).map(p => p.name.toLowerCase().trim()));
+    // ── Link every line to the catalogue ────────────────────────────────────
+    // ensure_product() returns the id of the existing product, or creates
+    // one and returns that. The id is written back onto the line, which is
+    // what makes product-level reporting possible at all.
+    //
+    // This previously read the whole products table and compared names in
+    // the browser. PostgREST caps a select at 1,000 rows, so with ~2,000
+    // products everything after roughly "L" looked missing and was
+    // re-inserted on every enquiry — "vitamin c" ended up in the table six
+    // times, "xanthan gum" five. The duplication was alphabetical.
+    const linked = [];
     for (const p of row.products) {
       const trimmed = p.name?.trim();
       if (!trimmed) continue;
-      if (!existingNames.has(trimmed.toLowerCase())) {
-        const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now();
-        await supabase.from("products").insert({ name: trimmed, slug, unit: p.unit || "kg", status: "pending", created_by: row.assigned_to || "system" });
+      try {
+        const { data: pid, error } = await supabase.rpc("ensure_product", {
+          p_name: trimmed,
+          p_unit: p.unit || "kg",
+          p_created_by: row.assigned_to || "system",
+        });
+        if (error) throw error;
+        linked.push({ ...p, name: trimmed, product_id: pid ?? p.product_id ?? null });
+      } catch (e) {
+        // A failed lookup must not lose the enquiry. Save the line
+        // unlinked and let the 3% be cleaned up later.
+        console.error("ensure_product failed for", trimmed, e);
+        linked.push({ ...p, name: trimmed });
       }
     }
+    row.products = linked;
     // ── Feature #8: FY-quarter review tag (running ENQ id is kept separately) ──
     if (!initial) {
       const { fy, q, qStart, qEnd } = fyQuarter(row.enquiry_date);
