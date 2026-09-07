@@ -22,6 +22,11 @@ export function CompanyPicker({ value, onChange, companies: preload, allowCreate
   const [q, setQ] = useState("");
   const [cursor, setCursor] = useState(0);
   const [creating, setCreating] = useState(false);
+  // Inline create asks for country up front. Creating a company with only
+  // a name means every enquiry under it inherits no country — which is
+  // how 30-odd companies ended up blank and their enquiries with them.
+  const [newCo, setNewCo] = useState(null);   // { name, iso2, countryName, type }
+  const [countries, setCountries] = useState([]);
   const boxRef = useRef(null), searchRef = useRef(null), listRef = useRef(null);
 
   useEffect(() => {
@@ -33,6 +38,13 @@ export function CompanyPicker({ value, onChange, companies: preload, allowCreate
       .then(({ data }) => { if (!dead) { setRows(data || []); setLoading(false); } });
     return () => { dead = true; };
   }, [preload]);
+
+  useEffect(() => {
+    supabase.from("countries")
+      .select("iso2,name,flag").eq("is_active", true)
+      .order("sort_order").order("name")
+      .then(({ data }) => setCountries(data || []));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -66,16 +78,34 @@ export function CompanyPicker({ value, onChange, companies: preload, allowCreate
     setOpen(false); setQ("");
   }
 
+  // Step 1 — open the small form rather than creating straight away.
+  function beginCreate() {
+    setNewCo({ name: q.trim(), iso2: "", type: "" });
+  }
+
+  // Step 2 — country is required. It costs one click and saves the
+  // company, its contacts and every future enquiry from being blank.
   async function createNow() {
-    const name = q.trim();
+    const name = (newCo?.name || "").trim();
     if (!name) return;
+    if (!newCo?.iso2) { alert("Pick a country — enquiries inherit it from the company."); return; }
     setCreating(true);
+    const country = countries.find(c => c.iso2 === newCo.iso2);
     const { data, error } = await supabase.from("companies")
-      .insert({ name, verified: false, created_by: "crm-inline", status: "active" })
+      .insert({
+        name,
+        country_iso2: newCo.iso2,
+        country: country?.name || null,
+        company_type: newCo.type || null,
+        verified: false,
+        created_by: "crm-inline",
+        status: "active",
+      })
       .select().single();
     setCreating(false);
     if (error) { alert("Could not create company: " + error.message); return; }
     setRows(r => [...r, data].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+    setNewCo(null);
     pick(data);
   }
 
@@ -85,7 +115,7 @@ export function CompanyPicker({ value, onChange, companies: preload, allowCreate
     else if (e.key === "Enter") {
       e.preventDefault();
       if (filtered[cursor]) pick(filtered[cursor]);
-      else if (allowCreate && q.trim() && !exact) createNow();
+      else if (allowCreate && q.trim() && !exact) beginCreate();
     }
     else if (e.key === "Escape") setOpen(false);
   }
@@ -143,11 +173,55 @@ export function CompanyPicker({ value, onChange, companies: preload, allowCreate
             {filtered.length === 0 && !q.trim() &&
               <div style={{ padding:11, fontSize:12, color:C.faded }}>No companies yet</div>}
           </div>
-          {allowCreate && q.trim() && !exact && (
-            <div onClick={createNow}
+          {allowCreate && q.trim() && !exact && !newCo && (
+            <div onClick={beginCreate}
               style={{ padding:"9px 10px", fontSize:12.5, cursor:"pointer", color:C.blue,
                        fontWeight:600, borderTop:`1px solid ${C.border}`, background:"#FAFBFC" }}>
-              {creating ? "Creating…" : `+ Create "${q.trim()}"`}
+              + Create "{q.trim()}"
+            </div>
+          )}
+
+          {newCo && (
+            <div style={{ borderTop:`1px solid ${C.border}`, background:"#FAFBFC", padding:"11px 10px" }}>
+              <div style={{ fontSize:9, fontWeight:700, letterSpacing:1.2, color:C.muted,
+                            textTransform:"uppercase", marginBottom:7 }}>New company</div>
+              <input value={newCo.name} autoFocus
+                onChange={e => setNewCo(n => ({ ...n, name: e.target.value }))}
+                placeholder="Company name"
+                style={{ ...INP, marginBottom:7 }}/>
+              <select value={newCo.iso2}
+                onChange={e => setNewCo(n => ({ ...n, iso2: e.target.value }))}
+                style={{ ...INP, marginBottom:7, cursor:"pointer",
+                         borderColor: newCo.iso2 ? C.border : C.red + "88" }}>
+                <option value="">Country * — required</option>
+                {countries.map(c => <option key={c.iso2} value={c.iso2}>{c.flag} {c.name}</option>)}
+              </select>
+              <select value={newCo.type}
+                onChange={e => setNewCo(n => ({ ...n, type: e.target.value }))}
+                style={{ ...INP, marginBottom:9, cursor:"pointer" }}>
+                <option value="">Type — optional, set later</option>
+                {["Nutraceutical Brand","Cosmetics Brand","Pharmaceutical Company",
+                  "CDMO / Contract Manufacturer","Ingredients Manufacturer",
+                  "Distributor / Trader","Retailer","R&D / Formulation Lab",
+                  "Pet Nutrition Company","Other / Unclear"]
+                  .map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <div style={{ display:"flex", gap:7 }}>
+                <button type="button" onClick={createNow} disabled={creating}
+                  style={{ background:C.blue, color:"#fff", border:0, borderRadius:7,
+                           padding:"6px 14px", fontSize:11.5, fontWeight:700,
+                           cursor: creating ? "wait" : "pointer" }}>
+                  {creating ? "Creating…" : "Create"}
+                </button>
+                <button type="button" onClick={() => setNewCo(null)}
+                  style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:7,
+                           padding:"6px 12px", fontSize:11.5, color:C.muted, cursor:"pointer" }}>
+                  Cancel
+                </button>
+              </div>
+              <div style={{ fontSize:9.5, color:C.faded, marginTop:7, lineHeight:1.5 }}>
+                Saved as unverified — check the domain and details in the Companies tab.
+              </div>
             </div>
           )}
         </div>
