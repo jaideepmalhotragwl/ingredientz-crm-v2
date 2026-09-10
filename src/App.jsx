@@ -1105,7 +1105,7 @@ export default function App() {
             {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </div>
         </div>
-        {activeTab === "dashboard"  && <Dashboard enquiries={enquiries} users={users} orders={orders} />}
+        {activeTab === "dashboard"  && <Dashboard users={users} />}
         {activeTab === "enquiries"  && <>
           <ViewToggle value={enqView} onChange={setEnqView}
             options={[["list","📋 List"],["analysis","📊 By customer"],["products","🧪 By product"]]}/>
