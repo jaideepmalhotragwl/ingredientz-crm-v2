@@ -56,13 +56,24 @@ export function ProductAnalysis({ onOpenCompany }) {
 
   async function load() {
     setLoading(true);
-    // The view is one row per product line, so this is ~2,000 rows —
-    // small enough to pivot in the browser and avoids a round trip
-    // every time someone changes the granularity.
-    const { data } = await supabase
-      .from("product_demand_v")
-      .select("family_key,family_name,variant_key,raw_name,enquiry_id,company_id,customer_name,enquiry_date,stage,qty,unit");
-    setRows(data || []);
+    // PostgREST caps a select at 1,000 rows. This view has ~2,000 product
+    // lines, so a plain select returned exactly half the data and every
+    // figure on this page was understated — Bovine Colostrum read 20
+    // enquiries when the true number was 42. Page until the rows run out.
+    const PAGE = 1000;
+    const all = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("product_demand_v")
+        .select("family_key,family_name,variant_key,raw_name,enquiry_id,company_id,customer_name,enquiry_date,stage,qty,unit")
+        .order("enquiry_id")
+        .range(from, from + PAGE - 1);
+      if (error) { console.error("product_demand_v:", error); break; }
+      all.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+      if (from > 50000) break;              // guard against a runaway loop
+    }
+    setRows(all);
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
