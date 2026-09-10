@@ -1,70 +1,340 @@
-import { C, STAGES, STAGE_COLORS, PRIO_COLORS } from "../constants.js";
-import { daysUntil, fmtDate } from "../utils.js";
+import { useState, useEffect, useMemo } from "react";
+import { supabase } from "../config.js";
+import { C } from "../constants.js";
 import { Card } from "./ui/Card.jsx";
-import { KPI } from "./ui/KPI.jsx";
-import { StageBadge } from "./ui/Badges.jsx";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
-// ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function Dashboard({enquiries,users,orders=[]}) {
-  const active=enquiries.filter(e=>!["PO Received","Lost","No Response","Out of Scope"].includes(e.stage));
-  const totalVal=enquiries.filter(e=>e.stage!=="Lost").reduce((s,e)=>s+(+e.expected_value||0),0);
-  const ordersCount=orders.length;
-  const overdueEnq=enquiries.filter(e=>{const d=daysUntil(e.reminder_date);return d!==null&&d<=0&&!["PO Received","Lost"].includes(e.stage);});
-  const closingSoon=enquiries.filter(e=>{const d=daysUntil(e.expected_closure);return d!==null&&d<=7&&d>=0&&!["PO Received","Lost"].includes(e.stage);});
-  const stageCounts=STAGES.map((s,i)=>({stage:s.split(" ")[0],count:enquiries.filter(e=>e.stage===s).length,color:STAGE_COLORS[i]})).filter(s=>s.count>0);
-  const assigneeCounts=users.filter(u=>u.active).map(u=>({name:u.name.split(" ")[0],count:enquiries.filter(e=>e.assigned_to===u.name).length})).filter(u=>u.count>0);
-  const CT=({active:a,payload})=>a&&payload?.length?<div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 12px",fontSize:11,color:C.ink,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>{payload[0].name||payload[0].dataKey}: <b style={{color:C.blue}}>{payload[0].value}</b></div>:null;
+/**
+ * Dashboard — what happened, over any period, and who did it.
+ *
+ * Everything counts on enquiry_date rather than created_at. The lag
+ * between a customer sending an enquiry and the team logging it
+ * averages 0.1 days here, so the distinction is academic — and
+ * enquiry_date is the honest reading of when demand arrived.
+ *
+ * Every period shows a comparison with the one before it. A number
+ * on its own says nothing: 19 enquiries is good or bad only against
+ * last month's 31.
+ */
 
-  return <div style={{display:"flex",flexDirection:"column",gap:16}}>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-      <KPI label="Total Enquiries" value={enquiries.length} sub={`${active.length} active`}/>
-      <KPI label="Pipeline Value" value={`$${Math.round(totalVal/1000)}K`} sub="Excl. lost" accent={C.blue}/>
-      <KPI label="Orders" value={ordersCount} sub="Total orders" accent={C.green}/>
-      <KPI label="Overdue Follow-ups" value={overdueEnq.length} sub={`${closingSoon.length} closing this week`} accent={overdueEnq.length>0?C.red:C.green}/>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:12}}>
-      <Card style={{padding:16}}>
-        <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:C.blue,textTransform:"uppercase",marginBottom:14}}>Pipeline by Stage</div>
-        <ResponsiveContainer width="100%" height={170}>
-          <BarChart data={stageCounts} margin={{top:4,right:8,bottom:4,left:-22}}>
-            <CartesianGrid stroke={C.border} strokeDasharray="3 3"/>
-            <XAxis dataKey="stage" tick={{fill:C.muted,fontSize:9}}/>
-            <YAxis tick={{fill:C.muted,fontSize:9}}/>
-            <Tooltip content={<CT/>}/>
-            <Bar dataKey="count" radius={[4,4,0,0]}>{stageCounts.map((s,i)=><Cell key={i} fill={s.color}/>)}</Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
-      <Card style={{padding:16}}>
-        <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:C.blue,textTransform:"uppercase",marginBottom:12}}>By Assignee</div>
-        <ResponsiveContainer width="100%" height={150}>
-          <PieChart><Pie data={assigneeCounts} cx="50%" cy="50%" outerRadius={58} dataKey="count" nameKey="name" paddingAngle={3}>{assigneeCounts.map((_,i)=><Cell key={i} fill={[C.blue,C.green,"#E2C47A",C.amber,"#9B59B6",C.muted][i%6]}/>)}</Pie><Tooltip content={<CT/>}/></PieChart>
-        </ResponsiveContainer>
-        <div style={{display:"flex",flexDirection:"column",gap:3}}>
-          {assigneeCounts.map((a,i)=><div key={a.name} style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
-            <span style={{color:[C.blue,C.green,"#E2C47A",C.amber,"#9B59B6",C.muted][i%6]}}>● {a.name}</span>
-            <span style={{color:C.ink,fontWeight:700}}>{a.count}</span>
-          </div>)}
-        </div>
-      </Card>
-    </div>
-    {overdueEnq.length>0&&<Card style={{padding:16,border:`1px solid #FFDAD9`,background:"#FFF8F8"}}>
-      <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:C.red,textTransform:"uppercase",marginBottom:12}}>🔔 Overdue Follow-ups ({overdueEnq.length})</div>
-      {overdueEnq.map(e=><div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.white,borderRadius:9,padding:"9px 14px",border:`1px solid #FFDAD9`,marginBottom:7}}>
-        <div><div style={{fontSize:12,color:C.ink,fontWeight:600}}>{e.customer_name}</div><div style={{fontSize:11,color:C.muted}}>{(e.products||[])[0]?.name||"—"} · {e.assigned_to}</div></div>
-        <div style={{textAlign:"right"}}><div style={{fontSize:11,color:C.red,fontWeight:700}}>Overdue {Math.abs(daysUntil(e.reminder_date))}d</div><StageBadge stage={e.stage}/></div>
-      </div>)}
-    </Card>}
-    {closingSoon.length>0&&<Card style={{padding:16,border:`1px solid #FFE0A3`,background:"#FFFBF0"}}>
-      <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:12}}>⚡ Closing This Week ({closingSoon.length})</div>
-      {closingSoon.map(e=><div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.white,borderRadius:9,padding:"9px 14px",border:`1px solid #FFE0A3`,marginBottom:7}}>
-        <div><div style={{fontSize:12,color:C.ink,fontWeight:600}}>{e.customer_name}</div><div style={{fontSize:11,color:C.muted}}>{(e.products||[])[0]?.name||"—"} · {e.assigned_to}</div></div>
-        <div style={{textAlign:"right"}}><div style={{fontSize:11,color:C.amber,fontWeight:700}}>{daysUntil(e.expected_closure)}d left</div><div style={{fontSize:12,color:C.blue,fontWeight:700}}>{e.currency} {Number(e.expected_value||0).toLocaleString()}</div></div>
-      </div>)}
-    </Card>}
+const PERIODS = [
+  ["today",   "Today"],
+  ["week",    "This week"],
+  ["month",   "This month"],
+  ["quarter", "This quarter"],
+  ["year",    "This year"],
+];
+
+const CLOSED = ["Lost", "No Response", "Out of Scope"];
+
+function bounds(period, offset = 0) {
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  let from, to;
+  if (period === "today") {
+    from = new Date(now); from.setDate(from.getDate() - offset);
+    to = new Date(from);
+  } else if (period === "week") {
+    from = new Date(now); from.setDate(from.getDate() - ((from.getDay() + 6) % 7) - offset * 7);
+    to = new Date(from); to.setDate(to.getDate() + 6);
+  } else if (period === "month") {
+    from = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    to = new Date(now.getFullYear(), now.getMonth() - offset + 1, 0);
+  } else if (period === "quarter") {
+    const q = Math.floor(now.getMonth() / 3) - offset;
+    from = new Date(now.getFullYear(), q * 3, 1);
+    to = new Date(now.getFullYear(), q * 3 + 3, 0);
+  } else {
+    from = new Date(now.getFullYear() - offset, 0, 1);
+    to = new Date(now.getFullYear() - offset, 11, 31);
+  }
+  const iso = d => d.toISOString().slice(0, 10);
+  return { from: iso(from), to: iso(to) };
+}
+
+const inRange = (d, b) => d && d >= b.from && d <= b.to;
+const money = n => n ? "$" + Math.round(n).toLocaleString() : "$0";
+
+function Delta({ now, prev }) {
+  if (prev === 0 && now === 0) return <span style={{ color: C.faded, fontSize: 11 }}>—</span>;
+  if (prev === 0) return <span style={{ color: "#1E7A46", fontSize: 11, fontWeight: 700 }}>new</span>;
+  const pct = Math.round(((now - prev) / prev) * 100);
+  const up = pct >= 0;
+  return <span style={{ fontSize: 11, fontWeight: 700, color: up ? "#1E7A46" : C.red }}>
+    {up ? "▲" : "▼"} {Math.abs(pct)}%
+    <span style={{ color: C.faded, fontWeight: 400 }}> vs {prev}</span>
+  </span>;
+}
+
+/** Daily trend. Hand-drawn SVG rather than a chart library — no
+ *  dependency to install, and full control over the axis. */
+function Trend({ series, days }) {
+  const W = 900, H = 190, PAD = { t: 12, r: 12, b: 26, l: 34 };
+  const max = Math.max(1, ...series.flatMap(s => s.values));
+  const iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
+  const x = i => PAD.l + (days.length <= 1 ? iw / 2 : (i / (days.length - 1)) * iw);
+  const y = v => PAD.t + ih - (v / max) * ih;
+
+  const ticks = [0, 0.5, 1].map(f => Math.round(max * f));
+  const labelEvery = Math.max(1, Math.ceil(days.length / 12));
+
+  return <div style={{ overflowX: "auto" }}>
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 560, height: H }}>
+      {ticks.map(t => (
+        <g key={t}>
+          <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} stroke={C.border} strokeWidth="1"/>
+          <text x={PAD.l - 7} y={y(t) + 4} textAnchor="end" fontSize="9" fill={C.faded}>{t}</text>
+        </g>
+      ))}
+      {series.map(s => (
+        <g key={s.name}>
+          <polyline fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round"
+            points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")}/>
+          {s.values.map((v, i) => v > 0 && (
+            <circle key={i} cx={x(i)} cy={y(v)} r="2.5" fill={s.color}>
+              <title>{days[i]} · {s.name}: {v}</title>
+            </circle>
+          ))}
+        </g>
+      ))}
+      {days.map((d, i) => i % labelEvery === 0 && (
+        <text key={d} x={x(i)} y={H - 8} textAnchor="middle" fontSize="9" fill={C.faded}>
+          {new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+        </text>
+      ))}
+    </svg>
   </div>;
 }
 
+export function Dashboard({ users = [] }) {
+  const [period, setPeriod] = useState("month");
+  const [enquiries, setEnq] = useState([]);
+  const [quotes, setQuotes] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [newCust, setNewCust] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-export { Dashboard };
+  useEffect(() => {
+    // Paged. A plain select stops at 1,000 rows, which silently halved
+    // the product analysis until it was caught — every figure here would
+    // be wrong the same way.
+    async function all(table, cols, order) {
+      const PAGE = 1000, out = [];
+      for (let f = 0; ; f += PAGE) {
+        const { data, error } = await supabase.from(table).select(cols)
+          .order(order).range(f, f + PAGE - 1);
+        if (error) { console.error(table, error); break; }
+        out.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+        if (f > 50000) break;
+      }
+      return out;
+    }
+    Promise.all([
+      all("enquiries", "id,enquiry_date,assigned_to,stage,company_id,expected_value", "id"),
+      all("quotations", "id,enquiry_id,created_at,grand_total", "id"),
+      all("orders", "id,order_date,created_at,total_amount,archived_at,company_id", "id"),
+      all("new_customers_v", "company_id,company_name,first_enquiry_date,assigned_to,verified", "company_id"),
+    ]).then(([e, q, o, n]) => {
+      setEnq(e); setQuotes(q); setOrders(o); setNewCust(n); setLoading(false);
+    });
+  }, []);
+
+  const repOf = useMemo(() => {
+    const m = {}; enquiries.forEach(e => { m[e.id] = e.assigned_to; }); return m;
+  }, [enquiries]);
+
+  const dateOf = {
+    enquiry: e => e.enquiry_date,
+    quote:   q => (q.created_at || "").slice(0, 10),
+    order:   o => (o.order_date || o.created_at || "").slice(0, 10),
+  };
+
+  function totals(b) {
+    const enq = enquiries.filter(e => inRange(e.enquiry_date, b));
+    const qs  = quotes.filter(q => inRange(dateOf.quote(q), b));
+    const os  = orders.filter(o => !o.archived_at && inRange(dateOf.order(o), b));
+    const nc  = newCust.filter(n => inRange(n.first_enquiry_date, b));
+    return {
+      enquiries: enq.length,
+      quotations: qs.length,
+      quotedEnquiries: new Set(qs.map(q => q.enquiry_id)).size,
+      orders: os.length,
+      orderValue: os.reduce((s, o) => s + (parseFloat(o.total_amount) || 0), 0),
+      newCustomers: nc.length,
+      newUnverified: nc.filter(n => n.verified === false).length,
+      won: enq.filter(e => e.stage === "PO Received").length,
+      open: enq.filter(e => !CLOSED.includes(e.stage) && e.stage !== "PO Received").length,
+    };
+  }
+
+  const b    = useMemo(() => bounds(period, 0), [period]);
+  const bPrev= useMemo(() => bounds(period, 1), [period]);
+  const now  = useMemo(() => totals(b),     [b, enquiries, quotes, orders, newCust]);
+  const prev = useMemo(() => totals(bPrev), [bPrev, enquiries, quotes, orders, newCust]);
+
+  // ── Daily series across the period ──────────────────────────
+  const { days, series } = useMemo(() => {
+    const out = [];
+    const cur = new Date(b.from + "T00:00:00"), end = new Date(b.to + "T00:00:00");
+    const today = new Date(); today.setHours(0,0,0,0);
+    while (cur <= end && cur <= today) { out.push(cur.toISOString().slice(0,10)); cur.setDate(cur.getDate()+1); }
+    const count = (arr, fn) => out.map(d => arr.filter(r => fn(r) === d).length);
+    return {
+      days: out,
+      series: [
+        { name: "Enquiries",  color: C.blue,   values: count(enquiries, dateOf.enquiry) },
+        { name: "Quotations", color: "#F5A623", values: count(quotes, dateOf.quote) },
+        { name: "Orders",     color: "#1E7A46", values: count(orders.filter(o => !o.archived_at), dateOf.order) },
+      ],
+    };
+  }, [b, enquiries, quotes, orders]);
+
+  // ── Per rep ─────────────────────────────────────────────────
+  const byRep = useMemo(() => {
+    const names = [...new Set([
+      ...users.filter(u => u.active !== false).map(u => u.name),
+      ...enquiries.map(e => e.assigned_to),
+    ].filter(Boolean))];
+    return names.map(name => {
+      const enq = enquiries.filter(e => e.assigned_to === name && inRange(e.enquiry_date, b));
+      const qs  = quotes.filter(q => repOf[q.enquiry_id] === name && inRange(dateOf.quote(q), b));
+      const won = enq.filter(e => e.stage === "PO Received").length;
+      const nc  = newCust.filter(n => n.assigned_to === name && inRange(n.first_enquiry_date, b));
+      return {
+        name,
+        enquiries: enq.length,
+        quotations: qs.length,
+        newCustomers: nc.length,
+        won,
+        // Of the enquiries they took this period, how many were quoted.
+        // Not a win rate — a measure of whether work is moving.
+        quoteRate: enq.length ? Math.round((new Set(qs.map(q => q.enquiry_id)).size / enq.length) * 100) : 0,
+        value: enq.reduce((s, e) => s + (parseFloat(e.expected_value) || 0), 0),
+      };
+    }).filter(r => r.enquiries || r.quotations).sort((a, b2) => b2.enquiries - a.enquiries);
+  }, [users, enquiries, quotes, newCust, repOf, b]);
+
+  if (loading) return <div style={{ padding: 30, color: C.muted, fontSize: 12 }}>Loading…</div>;
+
+  const kpi = [
+    ["New customers", now.newCustomers, prev.newCustomers,
+      now.newUnverified ? `${now.newUnverified} awaiting review` : "first enquiry in period"],
+    ["Enquiries", now.enquiries, prev.enquiries, `${now.open} still open`],
+    ["Quotations", now.quotations, prev.quotations, `${now.quotedEnquiries} enquiries quoted`],
+    ["Orders", now.orders, prev.orders, money(now.orderValue)],
+  ];
+
+  const th = { padding: "8px 12px", textAlign: "left", fontSize: 9, letterSpacing: 1,
+               textTransform: "uppercase", color: C.muted, fontWeight: 700,
+               borderBottom: `1px solid ${C.border}`, background: C.bg, whiteSpace: "nowrap" };
+  const thN = { ...th, textAlign: "right" };
+  const tdN = { padding: "9px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums",
+                borderBottom: `1px solid ${C.border}` };
+
+  return <div>
+    <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+      {PERIODS.map(([id, label]) => (
+        <button key={id} onClick={() => setPeriod(id)} style={{
+          background: period === id ? C.blueLt : "transparent",
+          border: `1px solid ${period === id ? C.blue : C.border}`,
+          borderRadius: 8, padding: "6px 15px", cursor: "pointer", fontSize: 12,
+          fontWeight: period === id ? 700 : 500,
+          color: period === id ? C.blue : C.muted,
+        }}>{label}</button>
+      ))}
+      <span style={{ marginLeft: "auto", fontSize: 11, color: C.faded, alignSelf: "center" }}>
+        {new Date(b.from).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+        {b.from !== b.to && ` – ${new Date(b.to).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
+      </span>
+    </div>
+
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+      {kpi.map(([label, v, p, hint]) => (
+        <div key={label} style={{ background: C.white, border: `1px solid ${C.border}`,
+                                  borderRadius: 10, padding: "13px 15px" }}>
+          <div style={{ fontSize: 9, letterSpacing: 1.2, textTransform: "uppercase",
+                        color: C.muted, fontWeight: 700 }}>{label}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: "5px 0 3px" }}>{v}</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+            <Delta now={v} prev={p}/>
+          </div>
+          <div style={{ fontSize: 10.5, color: C.faded, marginTop: 3 }}>{hint}</div>
+        </div>
+      ))}
+    </div>
+
+    <Card style={{ marginBottom: 14 }}>
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`,
+                    display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Daily activity</div>
+        {series.map(s => (
+          <span key={s.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.muted }}>
+            <span style={{ width: 11, height: 3, borderRadius: 2, background: s.color, display: "inline-block" }}/>
+            {s.name}
+          </span>
+        ))}
+      </div>
+      <div style={{ padding: "14px 16px 6px" }}>
+        {days.length ? <Trend series={series} days={days}/>
+          : <div style={{ padding: 30, textAlign: "center", color: C.muted, fontSize: 12 }}>
+              Nothing in this period yet.</div>}
+      </div>
+    </Card>
+
+    <Card style={{ overflow: "hidden" }}>
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`,
+                    fontSize: 15, fontWeight: 700 }}>
+        By salesperson
+        <span style={{ fontSize: 11, color: C.faded, fontWeight: 400, marginLeft: 8 }}>
+          enquiries assigned in this period
+        </span>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+        <thead><tr>
+          <th style={th}>Salesperson</th>
+          <th style={thN}>Enquiries</th>
+          <th style={thN}>New customers</th>
+          <th style={thN}>Quotations</th>
+          <th style={thN}>Quoted</th>
+          <th style={thN}>PO received</th>
+          <th style={thN}>Pipeline value</th>
+        </tr></thead>
+        <tbody>
+          {byRep.map((r, i) => (
+            <tr key={r.name} style={{ background: i % 2 === 0 ? C.bg : "transparent" }}>
+              <td style={{ padding: "9px 12px", fontWeight: 600, borderBottom: `1px solid ${C.border}` }}>{r.name}</td>
+              <td style={{ ...tdN, fontWeight: 700 }}>{r.enquiries}</td>
+              <td style={tdN}>{r.newCustomers || "—"}</td>
+              <td style={tdN}>{r.quotations || "—"}</td>
+              <td style={tdN}>
+                <span style={{ fontSize: 10.5, fontWeight: 700,
+                  color: r.quoteRate >= 50 ? "#1E7A46" : r.quoteRate >= 25 ? "#8a5a08" : C.faded,
+                  background: r.quoteRate >= 50 ? "#E6F4EC" : r.quoteRate >= 25 ? "#FDF3E3" : "transparent",
+                  borderRadius: 99, padding: "2px 8px" }}>{r.quoteRate}%</span>
+              </td>
+              <td style={tdN}>{r.won || "—"}</td>
+              <td style={{ ...tdN, color: C.muted }}>{r.value ? money(r.value) : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot><tr>
+          <td style={{ padding: "9px 12px", fontWeight: 700, background: C.bg, borderTop: `2px solid ${C.border}` }}>Total</td>
+          <td style={{ ...tdN, fontWeight: 700, background: C.bg, borderTop: `2px solid ${C.border}` }}>{now.enquiries}</td>
+          <td style={{ ...tdN, fontWeight: 700, background: C.bg, borderTop: `2px solid ${C.border}` }}>{now.newCustomers}</td>
+          <td style={{ ...tdN, fontWeight: 700, background: C.bg, borderTop: `2px solid ${C.border}` }}>{now.quotations}</td>
+          <td style={{ ...tdN, background: C.bg, borderTop: `2px solid ${C.border}` }}></td>
+          <td style={{ ...tdN, fontWeight: 700, background: C.bg, borderTop: `2px solid ${C.border}` }}>{now.won}</td>
+          <td style={{ ...tdN, background: C.bg, borderTop: `2px solid ${C.border}` }}></td>
+        </tr></tfoot>
+      </table>
+      {byRep.length === 0 && <div style={{ padding: 30, textAlign: "center", color: C.muted, fontSize: 12 }}>
+        No activity in this period.</div>}
+    </Card>
+
+    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8 }}>
+      Everything counts on the date the customer enquired, not the date it was logged —
+      the two differ by 0.1 days on average here. <b>Quoted</b> is the share of this period's
+      enquiries that reached a quotation, which shows whether work is moving rather than
+      whether it was won.
+    </div>
+  </div>;
+}
