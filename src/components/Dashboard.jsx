@@ -90,6 +90,7 @@ function Trend({ series, days }) {
       {series.map(s => (
         <g key={s.name}>
           <polyline fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round"
+            strokeDasharray={s.dash} strokeOpacity="0.9"
             points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")}/>
           {s.values.map((v, i) => v > 0 && (
             <circle key={i} cx={x(i)} cy={y(v)} r="2.5" fill={s.color}>
@@ -187,10 +188,15 @@ export function Dashboard({ users = [] }) {
     const count = (arr, fn) => out.map(d => arr.filter(r => fn(r) === d).length);
     return {
       days: out,
+      // Dashed patterns, not just colour. On 14 Sep enquiries and
+      // quotations were both 10, so the orange line painted exactly over
+      // the blue one and it looked as though enquiries were missing.
+      // Identical values are common here; the pattern makes the line
+      // underneath visible.
       series: [
-        { name: "Enquiries",  color: C.blue,   values: count(enquiries, dateOf.enquiry) },
-        { name: "Quotations", color: "#F5A623", values: count(quotes, dateOf.quote) },
-        { name: "Orders",     color: "#1E7A46", values: count(orders.filter(o => !o.archived_at), dateOf.order) },
+        { name: "Enquiries",  color: C.blue,    dash: "",      values: count(enquiries, dateOf.enquiry) },
+        { name: "Quotations", color: "#F5A623", dash: "7 4",   values: count(quotes, dateOf.quote) },
+        { name: "Orders",     color: "#1E7A46", dash: "2 4",   values: count(orders.filter(o => !o.archived_at), dateOf.order) },
       ],
     };
   }, [b, enquiries, quotes, orders]);
@@ -282,7 +288,8 @@ export function Dashboard({ users = [] }) {
         <div style={{ fontSize: 15, fontWeight: 700 }}>Daily activity</div>
         {series.map(s => (
           <span key={s.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.muted }}>
-            <span style={{ width: 11, height: 3, borderRadius: 2, background: s.color, display: "inline-block" }}/>
+            <span style={{ width: 14, height: 0, display: "inline-block",
+                           borderTop: `3px ${s.dash ? "dashed" : "solid"} ${s.color}` }}/>
             {s.name}
           </span>
         ))}
