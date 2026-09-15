@@ -46,7 +46,10 @@ function bounds(period, offset = 0) {
     from = new Date(now.getFullYear() - offset, 0, 1);
     to = new Date(now.getFullYear() - offset, 11, 31);
   }
-  const iso = d => d.toISOString().slice(0, 10);
+  // Format in LOCAL time. toISOString() converts to UTC, and at IST
+  // (+5:30) local midnight lands on the previous day — so "this month"
+  // was reading 31 Aug to 29 Sep instead of 1 to 30 Sep.
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   return { from: iso(from), to: iso(to) };
 }
 
@@ -131,7 +134,10 @@ export function Dashboard({ users = [] }) {
     Promise.all([
       all("enquiries", "id,enquiry_date,assigned_to,stage,company_id,expected_value", "id"),
       all("quotations", "id,enquiry_id,created_at,grand_total", "id"),
-      all("orders", "id,order_date,created_at,total_amount,archived_at,company_id", "id"),
+      // NOT order_date — that column does not exist, and PostgREST fails
+      // the whole select on an unknown column, so orders came back empty
+      // and every order figure read zero.
+      all("orders", "id,created_at,total_amount,archived_at,company_id", "id"),
       all("new_customers_v", "company_id,company_name,first_enquiry_date,assigned_to,verified", "company_id"),
     ]).then(([e, q, o, n]) => {
       setEnq(e); setQuotes(q); setOrders(o); setNewCust(n); setLoading(false);
@@ -145,7 +151,7 @@ export function Dashboard({ users = [] }) {
   const dateOf = {
     enquiry: e => e.enquiry_date,
     quote:   q => (q.created_at || "").slice(0, 10),
-    order:   o => (o.order_date || o.created_at || "").slice(0, 10),
+    order:   o => (o.created_at || "").slice(0, 10),
   };
 
   function totals(b) {
@@ -176,7 +182,8 @@ export function Dashboard({ users = [] }) {
     const out = [];
     const cur = new Date(b.from + "T00:00:00"), end = new Date(b.to + "T00:00:00");
     const today = new Date(); today.setHours(0,0,0,0);
-    while (cur <= end && cur <= today) { out.push(cur.toISOString().slice(0,10)); cur.setDate(cur.getDate()+1); }
+    const local = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    while (cur <= end && cur <= today) { out.push(local(cur)); cur.setDate(cur.getDate()+1); }
     const count = (arr, fn) => out.map(d => arr.filter(r => fn(r) === d).length);
     return {
       days: out,
@@ -205,9 +212,16 @@ export function Dashboard({ users = [] }) {
         quotations: qs.length,
         newCustomers: nc.length,
         won,
-        // Of the enquiries they took this period, how many were quoted.
-        // Not a win rate — a measure of whether work is moving.
-        quoteRate: enq.length ? Math.round((new Set(qs.map(q => q.enquiry_id)).size / enq.length) * 100) : 0,
+        // Of the enquiries raised in this period, how many have reached a
+        // quotation — whenever that quotation was sent. Dividing this
+        // period's quotations by this period's enquiries produced "450%":
+        // Deepak sent 10 quotations against enquiries raised weeks earlier,
+        // on a base of 2 new ones. A rate over 100% is the giveaway that
+        // numerator and denominator counted different populations.
+        quoteRate: enq.length
+          ? Math.round((new Set(quotes.filter(q => enq.some(e => e.id === q.enquiry_id))
+              .map(q => q.enquiry_id)).size / enq.length) * 100)
+          : 0,
         value: enq.reduce((s, e) => s + (parseFloat(e.expected_value) || 0), 0),
       };
     }).filter(r => r.enquiries || r.quotations).sort((a, b2) => b2.enquiries - a.enquiries);
@@ -332,9 +346,10 @@ export function Dashboard({ users = [] }) {
 
     <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8 }}>
       Everything counts on the date the customer enquired, not the date it was logged —
-      the two differ by 0.1 days on average here. <b>Quoted</b> is the share of this period's
-      enquiries that reached a quotation, which shows whether work is moving rather than
-      whether it was won.
+      the two differ by 0.1 days on average here. <b>Quotations</b> counts what was sent in
+      this period, which may be against older enquiries. <b>Quoted</b> is the share of this
+      period's enquiries that have reached a quotation, whenever it was sent — so it cannot
+      exceed 100%.
     </div>
   </div>;
 }
