@@ -620,7 +620,36 @@ export function OrderDrawer({
     </div>
   );
 }
-// ── Edit the order's reference details (PO number, dates, job name) ──────────
+// ── Fulfilment reference data ───────────────────────────────────────────────
+//    Adding a facility here is all it takes — there is no database constraint
+//    on warehouse_name, so no migration is needed.
+const WAREHOUSES = [
+  "Excelsior Lee MA",
+  "Excelsior Fresno CA",
+  "Mail Everything Inc (Chicago 3PL)",
+  "LA Warehouse",
+  "Supplier direct"
+];
+
+const FULFILMENT_MODES = ["Customer pickup", "Delivered by us", "Supplier drop-ship"];
+
+// Delivery state drives US sales-tax nexus, so it is picked, never typed.
+const US_STATES = [
+  ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],
+  ["CO","Colorado"],["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],
+  ["FL","Florida"],["GA","Georgia"],["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],
+  ["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],["LA","Louisiana"],
+  ["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],
+  ["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],
+  ["NH","New Hampshire"],["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],
+  ["NC","North Carolina"],["ND","North Dakota"],["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],
+  ["PA","Pennsylvania"],["PR","Puerto Rico"],["RI","Rhode Island"],["SC","South Carolina"],
+  ["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],
+  ["VA","Virginia"],["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]
+];
+const OUTSIDE_US = "Outside US";
+
+// ── Edit the order's reference details ──────────────────────────────────────
 //    Line-item values are NOT editable here — order value comes from the items.
 function OrderDetailsEdit({ order, onCancel, onSave }) {
   const iso = d => d ? String(d).split("T")[0] : "";
@@ -628,15 +657,28 @@ function OrderDetailsEdit({ order, onCancel, onSave }) {
     customer_po_number: order.customer_po_number || "",
     customer_po_date: iso(order.customer_po_date),
     expected_delivery_date: iso(order.expected_delivery_date),
-    job_name: order.job_name || ""
+    job_name: order.job_name || "",
+    warehouse_name: order.warehouse_name || "",
+    fulfilment_mode: order.fulfilment_mode || "",
+    ship_to_state: order.ship_to_state || "",
+    dispatch_date: iso(order.dispatch_date)
   });
   const [busy, setBusy] = useState(false);
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
   // Flag dates that look like a day/month transposition or a far-future typo.
   const poDate = form.customer_po_date ? new Date(form.customer_po_date) : null;
   const futureWarn = poDate && poDate > new Date(Date.now() + 7 * 86400000);
+
+  // A drop-ship never leaves one of our facilities — catch the mismatch on entry.
+  const shipMismatch =
+    form.fulfilment_mode === "Supplier drop-ship" &&
+    form.warehouse_name && form.warehouse_name !== "Supplier direct";
+
   const lbl = { fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: C.muted, textTransform: "uppercase", display: "block", marginBottom: 4 };
   const inp = { width: "100%", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontFamily: "inherit", color: C.ink, outline: "none", boxSizing: "border-box" };
+  const warnBox = { fontSize: 11, color: "#8a5a00", background: "#FFF8E7", border: "1px solid #FFE0A3", borderRadius: 7, padding: "7px 10px", marginBottom: 10 };
+
   async function save() {
     setBusy(true);
     try {
@@ -644,13 +686,18 @@ function OrderDetailsEdit({ order, onCancel, onSave }) {
         customer_po_number: form.customer_po_number.trim() || null,
         customer_po_date: form.customer_po_date || null,
         expected_delivery_date: form.expected_delivery_date || null,
-        job_name: form.job_name.trim() || null
+        job_name: form.job_name.trim() || null,
+        warehouse_name: form.warehouse_name || null,
+        fulfilment_mode: form.fulfilment_mode || null,
+        ship_to_state: form.ship_to_state || null,
+        dispatch_date: form.dispatch_date || null
       });
     } finally { setBusy(false); }
   }
+
   return (
     <div style={{ background: C.bg, border: `1px solid ${C.blue}44`, borderRadius: 9, padding: 14, marginBottom: 10 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.2fr", gap: 10, marginBottom: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.2fr", gap: 10, marginBottom: 12 }}>
         <div>
           <label style={lbl}>Customer PO #</label>
           <input style={inp} value={form.customer_po_number} onChange={e => set("customer_po_number", e.target.value)} placeholder="PO4581" />
@@ -668,11 +715,64 @@ function OrderDetailsEdit({ order, onCancel, onSave }) {
           <input style={inp} value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="optional" />
         </div>
       </div>
+
+      {/* ── Fulfilment — these four appear in the CPA portal ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 9, margin: "0 0 9px" }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: C.muted, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+          Fulfilment
+        </span>
+        <span style={{ flex: 1, height: 1, background: C.border }} />
+        <span style={{ fontSize: 10, color: C.muted }}>visible to the CPA</span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.2fr", gap: 10, marginBottom: 10 }}>
+        <div>
+          <label style={lbl}>Warehouse / facility</label>
+          <select style={inp} value={form.warehouse_name} onChange={e => set("warehouse_name", e.target.value)}>
+            <option value="">— not set —</option>
+            {WAREHOUSES.map(w => <option key={w} value={w}>{w}</option>)}
+            {form.warehouse_name && !WAREHOUSES.includes(form.warehouse_name) &&
+              <option value={form.warehouse_name}>{form.warehouse_name} (legacy)</option>}
+          </select>
+        </div>
+        <div>
+          <label style={lbl}>Fulfilment mode</label>
+          <select style={inp} value={form.fulfilment_mode} onChange={e => set("fulfilment_mode", e.target.value)}>
+            <option value="">— not set —</option>
+            {FULFILMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={lbl}>Ship-to state</label>
+          <select style={inp} value={form.ship_to_state} onChange={e => set("ship_to_state", e.target.value)}>
+            <option value="">— not set —</option>
+            <option value={OUTSIDE_US}>{OUTSIDE_US}</option>
+            {US_STATES.map(([code, name]) => <option key={code} value={code}>{code} — {name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={lbl}>Pickup / dispatch date</label>
+          <input type="date" style={inp} value={form.dispatch_date} onChange={e => set("dispatch_date", e.target.value)} />
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 10, lineHeight: 1.5 }}>
+        Ship-to state is the <b>delivery</b> address, not the billing address — it's what decides US sales-tax nexus.
+        Pickup / dispatch date is the day goods physically moved.
+      </div>
+
       {futureWarn && (
-        <div style={{ fontSize: 11, color: "#8a5a00", background: "#FFF8E7", border: "1px solid #FFE0A3", borderRadius: 7, padding: "7px 10px", marginBottom: 10 }}>
+        <div style={warnBox}>
           ⚠ That PO date is in the future — check it isn't a day/month mix-up (03/10 vs 10/03).
         </div>
       )}
+      {shipMismatch && (
+        <div style={warnBox}>
+          ⚠ This is a supplier drop-ship but the warehouse is set to “{form.warehouse_name}”. If the goods never
+          reach one of our facilities, set the warehouse to <b>Supplier direct</b>.
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={save} disabled={busy}
           style={{ background: C.blue, color: "#fff", border: 0, borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>
