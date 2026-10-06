@@ -32,6 +32,7 @@ import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
 import { MarketSignals }   from "./components/MarketSignals.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
+import { TeamRoom }        from "./components/TeamRoom.jsx";   // ── Team Room (chat + auto MIS + tasks) ──
 import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
 import { QualityApp }      from "./quality/QualityApp.jsx";       // ── Quality Portal ──
 
@@ -255,6 +256,7 @@ export default function App() {
         });
       }
     }
+    return data;   // ── Team Room needs the new row's id to post it into the feed ──
   }
 
   async function updateTask(id, row) {
@@ -1003,6 +1005,7 @@ export default function App() {
   ).length;
 
   const TABS = [
+    { id: "room",       label: "Team Room",  icon: "💬", badge: 0 },   // ── Team Room ──
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
     { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
@@ -1137,6 +1140,7 @@ export default function App() {
         {activeTab === "marketintel" && <MarketIntelTab />}
         {activeTab === "signals"    && <MarketSignals />}
         {activeTab === "research"   && <ResearchConsoleTab />}
+        {activeTab === "room"       && <TeamRoom supabase={supabase} users={users} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} />}
         {activeTab === "teamdesk"   && <TeamDesk supabase={supabase} users={users} dailyReports={dailyReports} onSaveReport={saveDailyReport} tasks={tasks} onTaskAdd={addTask} onTaskUpdate={updateTask} onTaskDelete={deleteTask} enquiries={enquiries} quotations={quotations} />}
         {activeTab === "users"      && <UsersTab users={users} onAdd={addUser} onUpdate={updateUser} onDelete={deleteUser} />}
       </div>
