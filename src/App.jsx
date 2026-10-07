@@ -32,7 +32,7 @@ import { MarketIntelTab }  from "./components/MarketIntelTab.jsx";
 import { MarketSignals }   from "./components/MarketSignals.jsx";
 import { ResearchConsoleTab } from "./components/ResearchConsoleTab.jsx";
 import { TeamDesk }        from "./components/TeamDesk.jsx";   // ── Team Tracker (replaces Team Activity) ──
-import { TeamRoom }        from "./components/TeamRoom.jsx";   // ── Team Room (chat + auto MIS + tasks) ──
+import { TeamRoom, useRoomUnread } from "./components/TeamRoom.jsx";   // ── Team Room (chat + auto MIS + tasks) ──
 import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
 import { QualityApp }      from "./quality/QualityApp.jsx";       // ── Quality Portal ──
 
@@ -1011,8 +1011,11 @@ export default function App() {
     r => r.status === "scheduled" || (r.status === "held" && r.auto_hold_reason)
   ).length;
 
+  // ── Team Room: messages since you last had the room open ──
+  const roomUnread = useRoomUnread(supabase, users);
+
   const TABS = [
-    { id: "room",       label: "Team Room",  icon: "💬", badge: 0 },   // ── Team Room ──
+    { id: "room",       label: "Team Room",  icon: "💬", badge: roomUnread },   // ── Team Room ──
     { id: "dashboard",  label: "Dashboard",  icon: "◈",  badge: 0 },
     { id: "enquiries",  label: "Enquiries",  icon: "📋", badge: 0 },
     { id: "orders",     label: "Orders",     icon: "📦", badge: 0 },
