@@ -408,6 +408,7 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
 
       {!loading && (
         <>
+          <MyBrief supabase={supabase} me={me} />
           <Feed
             supabase={supabase} messages={messages} users={users} me={me}
             shifts={shifts} reports={reports} taskById={byId} onTaskUpdate={onTaskUpdate}
@@ -516,6 +517,70 @@ function MsgRow({ msg, users, me, task, onTaskUpdate }) {
         )}
       </div>
     </div>
+  );
+}
+
+/* ───────────────────── what's waiting for you ───────────────────── */
+// Private to the person reading it. Posting seven of these into the feed every
+// morning would bury the conversation, and nobody needs to see each other's
+// backlog — the MIS cards already handle transparency.
+//
+// Counted, not generated. These are facts in the database; an LLM here would
+// only add latency and a chance of inventing a number.
+
+function MyBrief({ supabase, me }) {
+  const [w, setW] = useState(null);
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    supabase.rpc("my_open_work", { p_u: me.name }).then(({ data, error }) => {
+      if (on && !error) setW(Array.isArray(data) ? data[0] : data);
+    });
+    return () => { on = false; };
+  }, [supabase, me.name]);
+
+  if (!w || hidden) return null;
+
+  const h = new Date().getHours();
+  const greet = h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
+  const nothing = !num(w.needs_you) && !num(w.tasks_open) && !num(w.awaiting_customer);
+
+  const Chip = ({ n, label, tone }) => {
+    if (!num(n)) return null;
+    const col = tone === "bad" ? C.red : tone === "warn" ? C.amber : C.ink;
+    return (
+      <span style={{ fontSize: 12.5, color: C.muted, whiteSpace: "nowrap" }}>
+        <b style={{ color: col, fontFamily: "ui-monospace,Menlo,monospace", fontSize: 14 }}>{n}</b>{" "}
+        {label}
+      </span>
+    );
+  };
+
+  return (
+    <Card style={{ padding: "12px 15px", borderLeft: `3px solid ${C.blue}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <b style={{ fontSize: 13.5, color: C.ink }}>
+          {greet}, {me.name.split(" ")[0]}.
+        </b>
+        {nothing ? (
+          <span style={{ fontSize: 12.5, color: C.muted }}>Nothing waiting on you. Clear desk.</span>
+        ) : (
+          <>
+            <Chip n={w.needs_you} label="enquiries need you" />
+            <Chip n={w.no_quote} label="never quoted" tone="warn" />
+            <Chip n={w.awaiting_customer} label="awaiting customer" />
+            <Chip n={w.tasks_open} label="tasks open" />
+            <Chip n={w.tasks_overdue} label="overdue" tone="bad" />
+          </>
+        )}
+        <button onClick={() => setHidden(true)}
+          style={{ marginLeft: "auto", background: "none", border: "none", color: C.muted,
+                   fontSize: 16, lineHeight: 1, cursor: "pointer", padding: "0 2px" }}>
+          ×
+        </button>
+      </div>
+    </Card>
   );
 }
 
