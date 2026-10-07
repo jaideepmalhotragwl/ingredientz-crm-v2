@@ -17,7 +17,18 @@ import { Card } from "./ui/Card.jsx";
 import { Btn } from "./ui/Btn.jsx";
 import { colorFor, initials } from "./teamMetrics.js";
 
-const LS_KEY = "teamroom_user_id";
+const LS_KEY   = "teamroom_user_id";
+const SEEN_KEY = "teamroom_seen_at";
+
+const lsGet = (k, d = "") => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
+
+// Marking the room read is broadcast on the window so the sidebar badge, which
+// lives in a different component tree, clears at the same moment.
+const markSeen = () => {
+  lsSet(SEEN_KEY, new Date().toISOString());
+  window.dispatchEvent(new Event("teamroom:seen"));
+};
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -181,6 +192,16 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
 
+  // Having the room open IS reading it. Mark seen on arrival and on every new
+  // message, but only while the tab is actually in front.
+  useEffect(() => {
+    if (loading) return;
+    if (document.visibilityState === "visible") markSeen();
+    const on = () => { if (document.visibilityState === "visible") markSeen(); };
+    document.addEventListener("visibilitychange", on);
+    return () => document.removeEventListener("visibilitychange", on);
+  }, [loading, messages.length]);
+
   const myShift = useMemo(
     () => shifts.find((s) => s.user_name === me.name && !s.ended_at) || null,
     [shifts, me.name]
@@ -282,6 +303,8 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
           style={{ background: "none", border: "none", color: C.blue, fontSize: 12, cursor: "pointer", padding: 0 }}>
           not you?
         </button>
+
+        <AlertToggle />
 
         <button
           onClick={() => setDrawer(true)}
@@ -425,6 +448,26 @@ function MsgRow({ msg, users, me, task, onTaskUpdate }) {
         )}
       </div>
     </div>
+  );
+}
+
+/* ───────────────────────── alerts ─────────────────────────── */
+// Browsers only grant notification permission from a real click, so this has to
+// be a button. It disappears once the answer is given, either way — a prompt
+// that keeps reappearing is how people learn to ignore an app.
+
+function AlertToggle() {
+  const [state, setState] = useState(
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission
+  );
+  if (state !== "default") return null;
+  return (
+    <button
+      onClick={() => Notification.requestPermission().then(setState)}
+      style={{ background: "none", border: "none", color: C.blue, fontSize: 12,
+               cursor: "pointer", padding: 0 }}>
+      turn on alerts
+    </button>
   );
 }
 
@@ -778,4 +821,71 @@ function Composer({ users, me, onSend }) {
       </div>
     </Card>
   );
+}
+
+/* ───────────────────── unread badge, for the sidebar ───────────────────── */
+// Lives here because it needs the same "who am I" and the same table. App.jsx
+// calls it to put a count on the Team Room tab:
+//
+//   const roomUnread = useRoomUnread(supabase, users);
+//   { id: "room", label: "Team Room", icon: "💬", badge: roomUnread }
+//
+// It also raises a desktop alert when a message lands while you are looking at
+// another tab — nothing fires while the room is actually on screen.
+
+export function useRoomUnread(supabase, users = []) {
+  const [count, setCount] = useState(0);
+
+  const myName = useMemo(() => {
+    const id = lsGet(LS_KEY);
+    return users.find((u) => String(u.id) === String(id))?.name || "";
+  }, [users]);
+
+  // Recount from the server whenever the room is marked read, and on mount.
+  useEffect(() => {
+    if (!myName) return;
+    let on = true;
+    const recount = async () => {
+      const since = lsGet(SEEN_KEY) || new Date(Date.now() - 864e5).toISOString();
+      const { count: n } = await supabase
+        .from("room_messages")
+        .select("id", { count: "exact", head: true })
+        .gt("created_at", since)
+        .neq("user_name", myName);
+      if (on) setCount(n || 0);
+    };
+    recount();
+    const onSeen = () => { if (on) setCount(0); };
+    window.addEventListener("teamroom:seen", onSeen);
+    return () => { on = false; window.removeEventListener("teamroom:seen", onSeen); };
+  }, [supabase, myName]);
+
+  // Live increment, plus a desktop alert when the tab is in the background.
+  useEffect(() => {
+    if (!myName) return;
+    const ch = supabase
+      .channel("team-room-unread")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "room_messages" }, (p) => {
+        const m = p.new;
+        if (m.user_name === myName) return;
+        setCount((c) => c + 1);
+        if (typeof Notification === "undefined") return;
+        if (Notification.permission !== "granted") return;
+        if (document.visibilityState === "visible" && !document.hidden) {
+          // The room may still be on screen; only alert when the tab is hidden.
+          return;
+        }
+        try {
+          new Notification(m.user_name, {
+            body: m.kind === "mis" ? "filed their daily report" : (m.body || "sent a message"),
+            icon: "/icons/icon-192.png",
+            tag: "team-room",
+          });
+        } catch { /* some browsers require the service worker instead */ }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [supabase, myName]);
+
+  return count;
 }
