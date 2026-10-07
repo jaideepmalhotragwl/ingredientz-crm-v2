@@ -39,6 +39,30 @@ const tomorrowISO = () => {
   d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
 };
+const isOpen = (t) => t.status !== "Done";
+const isOverdue = (t) => isOpen(t) && t.due_date && t.due_date < todayISO();
+
+// Overdue first, then soonest due, then undated, then newest.
+const byUrgency = (a, b) => {
+  const oa = isOverdue(a), ob = isOverdue(b);
+  if (oa !== ob) return oa ? -1 : 1;
+  if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+  if (a.due_date) return -1;
+  if (b.due_date) return 1;
+  return (b.id || 0) - (a.id || 0);
+};
+
+function useIsNarrow(px = 760) {
+  const [narrow, setNarrow] = useState(
+    typeof window !== "undefined" ? window.innerWidth < px : false
+  );
+  useEffect(() => {
+    const on = () => setNarrow(window.innerWidth < px);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, [px]);
+  return narrow;
+}
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 
@@ -125,6 +149,7 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState(false);
+  const [drawer, setDrawer] = useState(false);
   const bottomRef = useRef(null);
   const startedRef = useRef(false);
 
@@ -243,6 +268,9 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
 
   const byId = (id) => tasks.find((t) => String(t.id) === String(id));
 
+  const mine = tasks.filter((t) => t.owner === me.name && isOpen(t));
+  const myOverdue = mine.filter(isOverdue).length;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 820 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -254,12 +282,36 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
           style={{ background: "none", border: "none", color: C.blue, fontSize: 12, cursor: "pointer", padding: 0 }}>
           not you?
         </button>
-        <span style={{ marginLeft: "auto", fontSize: 12, color: C.muted }}>
-          {myShift
-            ? `Shift started ${hhmm(myShift.started_at)} · ${dur(myShift.started_at)} ago`
-            : "No open shift"}
-        </span>
+
+        <button
+          onClick={() => setDrawer(true)}
+          style={{
+            marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7,
+            background: "white", border: `1px solid ${myOverdue ? C.red : C.border}`,
+            borderRadius: 8, padding: "5px 11px", cursor: "pointer",
+            fontSize: 12.5, fontWeight: 600, color: C.ink,
+          }}>
+          My tasks
+          <span style={{
+            minWidth: 19, textAlign: "center", borderRadius: 10, padding: "1px 6px",
+            fontSize: 11, fontWeight: 700, color: "white",
+            background: myOverdue ? C.red : mine.length ? C.blue : C.muted,
+          }}>
+            {mine.length}
+          </span>
+        </button>
       </div>
+
+      <div style={{ fontSize: 12, color: C.muted, marginTop: -8 }}>
+        {myShift
+          ? `Shift started ${hhmm(myShift.started_at)} · ${dur(myShift.started_at)} ago`
+          : "No open shift"}
+      </div>
+
+      {drawer && (
+        <TaskDrawer tasks={tasks} users={users} me={me}
+                    onTaskUpdate={onTaskUpdate} onClose={() => setDrawer(false)} />
+      )}
 
       {loading && <Card style={{ padding: 24, textAlign: "center", color: C.muted }}>Loading the room…</Card>}
 
@@ -371,6 +423,112 @@ function MsgRow({ msg, users, me, task, onTaskUpdate }) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── task drawer ─────────────────────────── */
+// Work that has been handed to someone has to stay visible. In WhatsApp a task
+// scrolls away in ten minutes; here it sits behind one button until it's closed.
+// Everyone can see everyone's list — same choice as the MIS cards — but it
+// opens on Mine, because that is what you act on.
+
+function TaskDrawer({ tasks, users, me, onTaskUpdate, onClose }) {
+  const [tab, setTab] = useState("mine");
+  const narrow = useIsNarrow();
+
+  const lists = useMemo(() => ({
+    mine:     tasks.filter((t) => t.owner === me.name && isOpen(t)).sort(byUrgency),
+    assigned: tasks.filter((t) => t.assigned_by === me.name && t.owner !== me.name && isOpen(t)).sort(byUrgency),
+    everyone: tasks.filter(isOpen).sort(byUrgency),
+  }), [tasks, me.name]);
+
+  const rows = lists[tab];
+
+  const TABS = [
+    ["mine", "Mine", lists.mine.length],
+    ["assigned", "I assigned", lists.assigned.length],
+    ["everyone", "Everyone", lists.everyone.length],
+  ];
+
+  const panel = narrow
+    ? { position: "fixed", inset: 0, borderRadius: 0 }
+    : { position: "fixed", top: 0, right: 0, bottom: 0, width: 380, borderRadius: 0,
+        boxShadow: "-8px 0 28px rgba(0,0,0,0.14)" };
+
+  return (
+    <>
+      <div onClick={onClose}
+           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.32)", zIndex: 60 }} />
+      <div style={{ ...panel, zIndex: 61, background: "white", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px",
+                      borderBottom: `1px solid ${C.border}` }}>
+          <b style={{ fontSize: 15, color: C.ink }}>Tasks</b>
+          <button onClick={onClose}
+            style={{ marginLeft: "auto", background: "none", border: "none", fontSize: 20,
+                     lineHeight: 1, color: C.muted, cursor: "pointer", padding: "0 4px" }}>
+            ×
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 6, padding: "10px 12px", borderBottom: `1px solid ${C.border}`,
+                      overflowX: "auto" }}>
+          {TABS.map(([id, label, n]) => (
+            <button key={id} onClick={() => setTab(id)}
+              style={{ whiteSpace: "nowrap", padding: "6px 11px", borderRadius: 8, cursor: "pointer",
+                       fontSize: 12.5, fontWeight: tab === id ? 700 : 500,
+                       border: `1px solid ${tab === id ? C.blue : C.border}`,
+                       background: tab === id ? C.blue : "white",
+                       color: tab === id ? "white" : C.muted }}>
+              {label} {n > 0 && <span style={{ opacity: 0.75 }}>({n})</span>}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px 20px" }}>
+          {!rows.length && (
+            <div style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "34px 10px" }}>
+              {tab === "mine" ? "Nothing open. Clear." : "Nothing here."}
+            </div>
+          )}
+          {rows.map((t) => (
+            <TaskCard key={t.id} task={t} users={users} me={me} onTaskUpdate={onTaskUpdate} />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TaskCard({ task, users, me, onTaskUpdate }) {
+  const over = isOverdue(task);
+  const mine = task.owner === me.name;
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 2px",
+                  borderBottom: `1px solid ${C.border}` }}>
+      <Avatar name={task.owner} users={users} size={26} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.45, wordBreak: "break-word" }}>
+          {task.task}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 5 }}>
+          <span style={{ fontSize: 11.5, color: over ? C.red : C.muted, fontWeight: over ? 700 : 400 }}>
+            {task.due_date ? (over ? `overdue · ${dayLabel(task.due_date)}` : `due ${dayLabel(task.due_date)}`) : "no due date"}
+          </span>
+          <span style={{ fontSize: 11.5, color: C.muted }}>
+            {mine ? (task.assigned_by ? `from ${task.assigned_by.split(" ")[0]}` : "") : task.owner.split(" ")[0]}
+          </span>
+          {mine && (
+            <button
+              onClick={() => onTaskUpdate?.(task.id, { status: "Done", completed_at: new Date().toISOString() })}
+              style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 600, color: C.green,
+                       background: "none", border: `1px solid ${C.green}`, borderRadius: 6,
+                       padding: "3px 10px", cursor: "pointer" }}>
+              Done
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
