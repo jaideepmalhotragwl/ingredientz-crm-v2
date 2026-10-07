@@ -50,6 +50,59 @@ const tomorrowISO = () => {
   d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
 };
+// Public half of the VAPID pair. Safe in client code — it only identifies the
+// sender to the push service; the private key lives in Supabase secrets.
+const VAPID_PUBLIC =
+  "BOd_4nr_8XkXtI-nZ2bvfo0q5bVCnGZIFifKPt18wphXuqS3Gdkl8RKUcWXLoKfEXlMcdnbJukUX77UJBDfRh58";
+
+const urlB64ToU8 = (b64) => {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+};
+
+// Registers THIS device for push. One row per device, so a laptop and a phone
+// both ring. Safe to call repeatedly — the endpoint is unique.
+async function registerPush(supabase, userName) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return "unsupported";
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return perm;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub =
+      (await reg.pushManager.getSubscription()) ||
+      (await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToU8(VAPID_PUBLIC),
+      }));
+    const j = sub.toJSON();
+    await supabase.from("push_subscriptions").upsert({
+      user_name: userName,
+      endpoint: j.endpoint,
+      p256dh: j.keys?.p256dh,
+      auth: j.keys?.auth,
+      user_agent: navigator.userAgent.slice(0, 200),
+    }, { onConflict: "endpoint" });
+    return "granted";
+  } catch (e) {
+    console.error("push subscribe failed", e);
+    return "failed";
+  }
+}
+
+// Who, if anyone, this message is addressed to. Used both to offer a task and
+// to decide whether anybody's phone should ring.
+function findMention(text, users) {
+  const m = String(text || "").match(/@([A-Za-z][A-Za-z.'-]*)/);
+  if (!m) return null;
+  const needle = m[1].toLowerCase();
+  return (
+    users.find((u) => u.active !== false && u.name?.toLowerCase().split(/\s+/)[0] === needle) ||
+    users.find((u) => u.active !== false && u.name?.toLowerCase().startsWith(needle)) ||
+    null
+  );
+}
+
 const isOpen = (t) => t.status !== "Done";
 const isOverdue = (t) => isOpen(t) && t.due_date && t.due_date < todayISO();
 
@@ -242,11 +295,25 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
 
   // One message, one row in the feed. When a message also creates a task the
   // SAME row carries it — printing the text twice made the room unreadable.
+  // Push goes out ONLY for a mention or an assignment. Ordinary chat never
+  // rings a phone — that is the difference between a tool people keep and one
+  // they mute.
+  async function ping(toName, title, bodyText) {
+    if (!toName || toName === me.name) return;
+    try {
+      await supabase.functions.invoke("notify-push", {
+        body: { to: [toName], title, body: bodyText.slice(0, 140), url: "/?view=room" },
+      });
+    } catch (e) { console.error("notify-push", e); }
+  }
+
   async function sendMessage(body, assignTo, dueDate) {
     const text = body.trim();
     if (!text) return;
+    const mention = findMention(text, users);
     if (!assignTo) {
       await post({ user_name: me.name, body: text, kind: "chat" });
+      if (mention) ping(mention.name, `${me.name} mentioned you`, text);
       return;
     }
     const t = await onTaskAdd?.({
@@ -260,6 +327,7 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
       ref_table: t?.id ? "tasks" : null,
       ref_id: t?.id ?? null,
     });
+    ping(assignTo.name, `${me.name} assigned you a task`, text);
   }
 
   async function endDay(manual) {
@@ -304,7 +372,7 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
           not you?
         </button>
 
-        <AlertToggle />
+        <AlertToggle supabase={supabase} me={me} />
 
         <button
           onClick={() => setDrawer(true)}
@@ -456,17 +524,30 @@ function MsgRow({ msg, users, me, task, onTaskUpdate }) {
 // be a button. It disappears once the answer is given, either way — a prompt
 // that keeps reappearing is how people learn to ignore an app.
 
-function AlertToggle() {
+function AlertToggle({ supabase, me }) {
   const [state, setState] = useState(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   );
+  const [busy, setBusy] = useState(false);
+
+  // Already granted: make sure THIS device is registered, then stay quiet.
+  useEffect(() => {
+    if (state === "granted") registerPush(supabase, me.name);
+  }, [state, supabase, me.name]);
+
   if (state !== "default") return null;
+
   return (
     <button
-      onClick={() => Notification.requestPermission().then(setState)}
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        setState(await registerPush(supabase, me.name));
+        setBusy(false);
+      }}
       style={{ background: "none", border: "none", color: C.blue, fontSize: 12,
                cursor: "pointer", padding: 0 }}>
-      turn on alerts
+      {busy ? "…" : "turn on alerts"}
     </button>
   );
 }
