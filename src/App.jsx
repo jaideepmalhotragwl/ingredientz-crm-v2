@@ -36,6 +36,13 @@ import { TeamRoom }        from "./components/TeamRoom.jsx";   // ── Team Ro
 import { LabelStudio }     from "./components/LabelStudio.jsx";   // ── Labels / re-label studio ──
 import { QualityApp }      from "./quality/QualityApp.jsx";       // ── Quality Portal ──
 
+// ── Installed-app mode ──────────────────────────────────────────────────────
+// The PWA manifest launches /?view=room. In that mode the CRM is just the Team
+// Room: no sidebar, no 21 tabs, full width. Same code, same deploy.
+const ROOM_ONLY =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("view") === "room";
+
 // ── View switch, shared by the Enquiries and Orders tabs ─────────────────────
 //    Enquiries gets a third view: the same data grouped by product
 //    rather than by customer, which answers a different question.
@@ -78,7 +85,7 @@ export default function App() {
   const [shipments, setShipments]   = useState([]);
   const [statusHistory, setStatusHistory] = useState([]);
   const [samples, setSamples]       = useState([]);
-  const [activeTab, setActiveTab]   = useState("dashboard");
+  const [activeTab, setActiveTab]   = useState(ROOM_ONLY ? "room" : "dashboard");
   const [enqView, setEnqView]       = useState("list");    // list | analysis
   const [ordView, setOrdView]       = useState("list");
   const [selectedEnq, setSelectedEnq] = useState(null);
@@ -1056,6 +1063,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {!ROOM_ONLY && (
       <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 215, background: "#1877F2", borderRight: "1px solid rgba(255,255,255,0.1)", zIndex: 10, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
           <img src={LOGO} alt="Ingredientz" style={{ width: "100%", height: 44, objectFit: "contain", objectPosition: "left center", background: "white", borderRadius: 7, padding: "5px 10px" }} />
@@ -1099,15 +1107,16 @@ export default function App() {
           ))}
         </div>
       </div>
-      <div style={{ marginLeft: 215, padding: "24px 28px" }}>
-        <div style={{ marginBottom: 22 }}>
+      )}
+      <div style={{ marginLeft: ROOM_ONLY ? 0 : 215, padding: ROOM_ONLY ? "10px 12px 0" : "24px 28px" }}>
+        {!ROOM_ONLY && <div style={{ marginBottom: 22 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: C.ink, margin: 0, lineHeight: 1 }}>
             {TABS.find(t => t.id === activeTab)?.label}
           </h1>
           <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
             {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </div>
-        </div>
+        </div>}
         {activeTab === "dashboard"  && <Dashboard users={users} />}
         {activeTab === "enquiries"  && <>
           <ViewToggle value={enqView} onChange={setEnqView}
