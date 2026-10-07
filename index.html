@@ -2,8 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Ingredientz Enquiry CRM</title>
+
+    <!-- ── Installable app (PWA) ────────────────────────────────────────── -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#1877F2" />
+    <meta name="description" content="Ingredientz Enquiry CRM and Team Room" />
+
+    <!-- iOS: it ignores the manifest, so these have to be spelled out -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Team Room" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <style>
+      /* Keep content clear of the notch and the home indicator once the app
+         runs full-screen from the home screen. */
+      body {
+        margin: 0;
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        -webkit-text-size-adjust: 100%;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
