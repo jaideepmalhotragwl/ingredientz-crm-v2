@@ -361,7 +361,7 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
   const myOverdue = mine.filter(isOverdue).length;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 820 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <Avatar name={me.name} users={users} size={26} />
         <span style={{ fontSize: 13, color: C.ink }}>
