@@ -29,7 +29,7 @@ const dayLabel = (d) =>
   new Date(d + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const dur = (a, b) => {
   const ms = new Date(b || Date.now()) - new Date(a);
-  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (!Number.isFinite(ms) || ms < 60000) return "—";   // a shift under a minute is a bad record
   const h = Math.floor(ms / 3.6e6);
   const m = Math.round((ms - h * 3.6e6) / 6e4);
   return `${h}h ${m}m`;
@@ -162,18 +162,31 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
   );
 
   // Opening the room starts your shift — nobody has to remember to clock in.
+  //
+  // INSERT, never upsert. An upsert on (user_name, report_date) rewrites
+  // started_at every time the component remounts, so a shift that has already
+  // been filed gets a start time LATER than its end — a zero-length window,
+  // and every computed figure comes out as 0. started_at is written once a day
+  // and never touched again.
   useEffect(() => {
-    if (loading || myShift || startedRef.current) return;
+    if (loading || startedRef.current) return;
     startedRef.current = true;
+    const today = todayISO();
+    if (shifts.some((s) => s.user_name === me.name && s.report_date === today)) return;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("shifts")
-        .upsert({ user_name: me.name, report_date: todayISO(), started_at: new Date().toISOString() },
-                { onConflict: "user_name,report_date" })
+        .insert({ user_name: me.name, report_date: today, started_at: new Date().toISOString() })
         .select().single();
-      if (data) setShifts((p) => [data, ...p.filter((x) => x.id !== data.id)]);
+      if (data) { setShifts((p) => [data, ...p]); return; }
+      if (error) {
+        // Another tab won the race — take whatever is already there.
+        const { data: existing } = await supabase.from("shifts").select("*")
+          .eq("user_name", me.name).eq("report_date", today).single();
+        if (existing) setShifts((p) => [existing, ...p.filter((x) => x.id !== existing.id)]);
+      }
     })();
-  }, [loading, myShift, supabase, me.name]);
+  }, [loading, shifts, supabase, me.name]);
 
   async function post(row) {
     const { data } = await supabase.from("room_messages").insert(row).select().single();
@@ -181,17 +194,26 @@ function Room({ supabase, users, me, tasks, onTaskAdd, onTaskUpdate, onSwitchUse
     return data;
   }
 
+  // One message, one row in the feed. When a message also creates a task the
+  // SAME row carries it — printing the text twice made the room unreadable.
   async function sendMessage(body, assignTo, dueDate) {
-    if (!body.trim()) return;
-    await post({ user_name: me.name, body: body.trim(), kind: "chat" });
-    if (assignTo) {
-      const t = await onTaskAdd?.({
-        task: body.trim(), owner: assignTo.name, assigned_by: me.name,
-        priority: "Medium", status: "Not Started",
-        due_date: dueDate || tomorrowISO(), source: "team-room",
-      });
-      if (t?.id) await post({ user_name: me.name, kind: "task", ref_table: "tasks", ref_id: t.id });
+    const text = body.trim();
+    if (!text) return;
+    if (!assignTo) {
+      await post({ user_name: me.name, body: text, kind: "chat" });
+      return;
     }
+    const t = await onTaskAdd?.({
+      task: text, owner: assignTo.name, assigned_by: me.name,
+      priority: "Medium", status: "Not Started",
+      due_date: dueDate || tomorrowISO(), source: "team-room",
+    });
+    await post({
+      user_name: me.name, body: text,
+      kind: t?.id ? "task" : "chat",
+      ref_table: t?.id ? "tasks" : null,
+      ref_id: t?.id ?? null,
+    });
   }
 
   async function endDay(manual) {
@@ -295,12 +317,11 @@ function Feed({ supabase, messages, users, me, shifts, reports, taskById, onTask
               return <MisCard key={m.id} supabase={supabase} users={users}
                               shift={shift} report={report} who={m.user_name} />;
             }
-            if (m.kind === "task") {
-              const t = taskById(m.ref_id);
-              if (!t) return null;
-              return <TaskRow key={m.id} task={t} me={me} users={users} onTaskUpdate={onTaskUpdate} />;
-            }
-            return <ChatRow key={m.id} msg={m} users={users} />;
+            return (
+              <MsgRow key={m.id} msg={m} users={users} me={me}
+                      task={m.kind === "task" ? taskById(m.ref_id) : null}
+                      onTaskUpdate={onTaskUpdate} />
+            );
           })}
         </div>
       ))}
@@ -308,51 +329,47 @@ function Feed({ supabase, messages, users, me, shifts, reports, taskById, onTask
   );
 }
 
-function ChatRow({ msg, users }) {
+// One row per message. A message that carries a task grows a thin bar under the
+// text — it is never reprinted as a second card.
+function MsgRow({ msg, users, me, task, onTaskUpdate }) {
+  const done = task?.status === "Done";
+  const overdue = task && !done && task.due_date && task.due_date < todayISO();
+  const mine = task?.owner === me.name;
+
   return (
     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
       <Avatar name={msg.user_name} users={users} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
           <b style={{ fontSize: 13.5, color: C.ink }}>{msg.user_name}</b>
           <span style={{ fontSize: 11, color: C.muted }}>{hhmm(msg.created_at)}</span>
         </div>
-        <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        <div style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.55,
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                      textDecoration: done ? "line-through" : "none",
+                      opacity: done ? 0.6 : 1 }}>
           {msg.body}
         </div>
-      </div>
-    </div>
-  );
-}
 
-function TaskRow({ task, me, users, onTaskUpdate }) {
-  const done = task.status === "Done";
-  const overdue = !done && task.due_date && task.due_date < todayISO();
-  const mine = task.owner === me.name;
-  return (
-    <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: 40 }}>
-      <div style={{
-        flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-        border: `1px solid ${overdue ? C.red : C.border}`, borderRadius: 9,
-        padding: "8px 12px", background: done ? C.bg : "white",
-      }}>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase",
-                       color: done ? C.green : overdue ? C.red : C.blue }}>
-          {done ? "done" : overdue ? "overdue" : "task"}
-        </span>
-        <span style={{ fontSize: 13, color: C.ink, textDecoration: done ? "line-through" : "none" }}>
-          {task.task}
-        </span>
-        <span style={{ fontSize: 11.5, color: C.muted, marginLeft: "auto" }}>
-          {task.owner}{task.due_date ? ` · due ${dayLabel(task.due_date)}` : ""}
-        </span>
-        {mine && !done && (
-          <button
-            onClick={() => onTaskUpdate?.(task.id, { status: "Done", completed_at: new Date().toISOString() })}
-            style={{ fontSize: 11.5, fontWeight: 600, color: C.green, background: "none",
-                     border: `1px solid ${C.green}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
-            Mark done
-          </button>
+        {task && (
+          <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", marginTop: 5,
+                        paddingLeft: 9, borderLeft: `3px solid ${done ? C.green : overdue ? C.red : C.blue}` }}>
+            <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase",
+                           color: done ? C.green : overdue ? C.red : C.blue }}>
+              {done ? "done" : overdue ? "overdue" : "task"}
+            </span>
+            <span style={{ fontSize: 11.5, color: C.muted }}>
+              {task.owner}{task.due_date ? ` · due ${dayLabel(task.due_date)}` : ""}
+            </span>
+            {mine && !done && (
+              <button
+                onClick={() => onTaskUpdate?.(task.id, { status: "Done", completed_at: new Date().toISOString() })}
+                style={{ fontSize: 11, fontWeight: 600, color: C.green, background: "none",
+                         border: `1px solid ${C.green}`, borderRadius: 6, padding: "2px 8px", cursor: "pointer" }}>
+                Mark done
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -546,9 +563,14 @@ function Composer({ users, me, onSend }) {
 
   // An @mention OFFERS a task. It never creates one silently — most chat is
   // just chat, and a room that turns every sentence into a task gets ignored.
+  // A bare "@shraddha" with nothing after it is calling someone's name, not
+  // giving them work, so it offers nothing.
   const mentioned = useMemo(() => {
     const m = text.match(/@([A-Za-z][A-Za-z.'-]*)/);
     if (!m) return null;
+    const rest = (text.slice(0, m.index) + text.slice(m.index + m[0].length))
+      .replace(/[\s,:;.\-–—]/g, "");
+    if (rest.length < 4) return null;          // nothing was actually asked
     const needle = m[1].toLowerCase();
     return (
       users.find((u) => u.active !== false && u.name?.toLowerCase().split(/\s+/)[0] === needle) ||
