@@ -416,12 +416,39 @@ function drawTally() {
 
 /* ── customer search ──────────────────────────────────────────────────── */
 let searchT = 0;
+// Word-wise, not a literal substring. "NutraQueen" has to find "Nutra Queen
+// Bio", and a plain ilike '%nutraqueen%' never will — which is precisely the
+// case this box exists for. So the term is split on spaces AND on camelCase,
+// every word is searched separately, and the hits are ranked by how many of
+// them a name actually contains.
 async function searchCustomers(term) {
-  const t = term.trim();
-  if (t.length < 2) return [];
-  const enc = encodeURIComponent('%' + t + '%');
-  return await api('customers?select=id,company,country,email&company=ilike.' + enc
-    + '&order=company.asc&limit=12') || [];
+  const raw = term.trim();
+  if (raw.length < 2) return [];
+
+  const words = raw
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')      // NutraQueen -> Nutra Queen
+    .replace(/[^A-Za-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .map(w => w.toLowerCase())
+    .filter(w => w.length >= 3)
+    .slice(0, 4);
+
+  if (!words.length) words.push(raw.toLowerCase());
+
+  const ors = words.map(w => 'company.ilike.*' + w.replace(/[*(),]/g, '') + '*').join(',');
+  const hits = await api('customers?select=id,company,country,email'
+    + '&or=(' + encodeURIComponent(ors) + ')&limit=60') || [];
+
+  // Rank: most words matched wins, then a name that starts with the first word,
+  // then the shortest name — "Nutra Queen Bio" should beat "Nutra Queen Bio
+  // Holdings International" when both match equally.
+  const score = (c) => {
+    const n = (c.company || '').toLowerCase();
+    let s = words.reduce((acc, w) => acc + (n.includes(w) ? 10 : 0), 0);
+    if (n.startsWith(words[0])) s += 5;
+    return s - Math.min(n.length, 40) / 100;
+  };
+  return hits.sort((a, b) => score(b) - score(a)).slice(0, 12);
 }
 
 /* ── one card ─────────────────────────────────────────────────────────── */
