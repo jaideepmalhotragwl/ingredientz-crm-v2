@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0D1F3C">
+<title>Ingredientz · Meetings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --navy:#0D1F3C; --gold:#C9A84C; --blue:#1877F2;
+    --ink:#0D1F3C; --muted:#5A6A80; --faint:#8A99AC;
+    --line:#D8DFE9; --rule:#C8D2E0; --bg:#F2F5F9;
+    --green:#10B981; --amber:#F59E0B; --red:#E11D48;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:14px;-webkit-font-smoothing:antialiased}
+
+  .bar{position:sticky;top:0;z-index:60;background:var(--navy);color:#fff;padding:calc(env(safe-area-inset-top) + 11px) 18px 11px;box-shadow:0 2px 14px rgba(13,31,60,.22)}
+  .brow{max-width:1120px;margin:0 auto;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .ttl{font-weight:700;font-size:15px;margin-right:auto;letter-spacing:.01em}
+  .ttl small{display:block;font-weight:400;font-size:10px;opacity:.6;letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+  .bar select,.bar input{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;outline:none}
+  .bar select option{color:#0D1F3C}
+  .bar input::placeholder{color:rgba(255,255,255,.5)}
+  .seg{display:flex;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:8px;overflow:hidden}
+  .seg button{background:transparent;border:0;color:rgba(255,255,255,.8);padding:8px 14px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--gold);color:var(--navy)}
+  .add{background:var(--gold);color:var(--navy);border:0;border-radius:8px;padding:9px 15px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:18px 16px 90px}
+
+  .tally{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .pill{background:#fff;border:1px solid var(--line);border-radius:20px;padding:7px 13px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
+  .pill b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .pill[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .pill[aria-pressed="true"] b{color:var(--gold)}
+
+  .day{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:22px 0 9px;display:flex;align-items:center;gap:10px}
+  .day:first-child{margin-top:0}
+  .day::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;overflow:hidden}
+  .card.open{border-color:var(--navy);box-shadow:0 3px 16px rgba(13,31,60,.1)}
+  .row{display:flex;align-items:center;gap:11px;padding:12px 14px;cursor:pointer}
+  .row .co{font-weight:650;font-size:14.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .co em{display:block;font-style:normal;font-size:11.5px;color:var(--muted);font-weight:400;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip{font-size:10px;font-weight:700;padding:4px 9px;border-radius:5px;white-space:nowrap;letter-spacing:.03em}
+  .chip.booth{background:var(--navy);color:var(--gold)}
+  .chip.walk{background:#EEF2F8;color:var(--navy);border:1px solid var(--line)}
+  .chip.who{background:#F1F5F9;color:var(--muted)}
+  .chip.none{background:#FFF7E8;color:#8A6410}
+  .chip.linked{background:#ECFDF5;color:#065F46}
+  .chip.sugg{background:#FFFBEB;color:#92600A}
+  .chip.newc{background:#EFF6FF;color:#1D4ED8}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .dot.planned{background:var(--line)} .dot.met{background:var(--green)} .dot.skipped{background:var(--faint)}
+
+  .form{display:none;padding:4px 14px 16px;border-top:1px solid var(--line)}
+  .card.open .form{display:block}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:11px;margin-top:13px}
+  label{display:block;font-size:10px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px}
+  .f{margin-bottom:11px}
+  .f input,.f select,.f textarea{width:100%;border:1px solid #CCD5E3;border-radius:8px;padding:9px 10px;font-size:15px;font-family:inherit;color:var(--ink);background:#fff;outline:none}
+  .f textarea{resize:vertical;min-height:62px;line-height:1.5;font-size:14px}
+  .f input:focus,.f select:focus,.f textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,119,242,.1)}
+
+  .cts{display:flex;flex-direction:column;gap:7px}
+  .ct{display:grid;grid-template-columns:1.1fr 1.4fr .9fr auto;gap:7px;align-items:center}
+  .ct button{background:#fff;border:1px solid #CCD5E3;color:var(--muted);border-radius:7px;width:34px;height:36px;font-size:17px;cursor:pointer;font-family:inherit}
+  .mini{background:#fff;border:1px dashed #BFCBDC;color:var(--muted);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:7px}
+  @media (max-width:620px){ .ct{grid-template-columns:1fr auto} .ct input:nth-child(2),.ct input:nth-child(3){grid-column:1 / -1} }
+
+  /* ── the customer link panel ─────────────────────────────────────────── */
+  .link{border:1px solid var(--line);border-radius:10px;padding:12px 13px;margin-top:14px;background:#FBFCFE}
+  .link.on{border-color:#A7E3C6;background:#F4FDF8}
+  .link.sug{border-color:#F5D98E;background:#FFFCF3}
+  .link h4{margin:0 0 3px;font-size:13.5px;font-weight:650}
+  .link p{margin:0;font-size:12px;color:var(--muted);line-height:1.5}
+  .link .acts2{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .link button{border-radius:8px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;padding:8px 13px;border:1px solid #CCD5E3;background:#fff;color:var(--ink)}
+  .link button.pri{background:var(--navy);color:var(--gold);border-color:var(--navy)}
+  .srch{position:relative;margin-top:9px}
+  .res{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 8px 24px rgba(13,31,60,.14);max-height:230px;overflow-y:auto;z-index:20}
+  .res div{padding:9px 11px;cursor:pointer;font-size:13px;border-bottom:1px solid #F1F5F9}
+  .res div:last-child{border-bottom:0}
+  .res div:hover{background:#F4F7FB}
+  .res div span{display:block;font-size:11px;color:var(--muted)}
+
+  .hist{margin-top:11px;border-top:1px dashed var(--line);padding-top:10px}
+  .hist .sum{font-size:12.5px;color:var(--muted);margin-bottom:7px}
+  .hist .sum b{color:var(--ink)}
+  .prods{display:flex;flex-wrap:wrap;gap:5px;max-height:120px;overflow-y:auto}
+  .prods span{background:#fff;border:1px solid var(--line);border-radius:14px;padding:4px 10px;font-size:11.5px}
+
+  .acts{display:flex;gap:8px;align-items:center;margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
+  .save{background:var(--navy);color:var(--gold);border:0;border-radius:9px;padding:11px 20px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+  .save:disabled{background:#E2E8F0;color:#9AA8BA}
+  .ghost{background:#fff;border:1px solid #CCD5E3;color:var(--muted);border-radius:9px;padding:11px 15px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer}
+  .del{margin-left:auto;background:transparent;border:0;color:var(--red);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+  .said{font-size:12px;color:var(--green);font-weight:600}
+
+  .note{background:#fff;border:1px solid var(--line);border-radius:10px;padding:44px 22px;text-align:center;color:var(--muted)}
+  .banner{border-radius:9px;padding:12px 14px;font-size:13px;margin-bottom:14px;line-height:1.5}
+  .banner.bad{background:#FFF1F2;border:1px solid #FBC5D0;color:#9F1239}
+  .banner.info{background:#EFF6FF;border:1px solid #BFDBFE;color:#1D4ED8}
+  .hidden{display:none !important}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:90;background:var(--navy);color:#fff;padding:12px 20px;border-radius:22px;font-size:13px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+
+  /* setup */
+  .setup{max-width:520px;margin:50px auto;background:#fff;border:1px solid var(--line);border-radius:12px;padding:26px}
+  .setup h2{margin:0 0 6px;font-size:18px}
+  .setup p{color:var(--muted);font-size:13px;line-height:1.6;margin:0 0 16px}
+  .setup input{width:100%;border:1px solid #CCD5E3;border-radius:9px;padding:11px;font-size:14px;font-family:inherit;margin-bottom:11px}
+
+  /* ── print book ─────────────────────────────────────────────────────── */
+  .book{max-width:210mm;margin:0 auto}
+  .page{background:#fff;border:1px solid var(--line);border-radius:3px;box-shadow:0 2px 10px rgba(13,31,60,.07);padding:16mm 15mm 13mm;margin-bottom:20px;min-height:252mm;display:flex;flex-direction:column}
+  .phead{display:flex;align-items:flex-start;gap:14px;padding-bottom:13px;border-bottom:2px solid var(--navy)}
+  .phead h1{font-family:var(--serif);font-weight:600;font-size:25px;line-height:1.14;margin:0;flex:1;min-width:0;text-wrap:balance;letter-spacing:-.01em}
+  .where{text-align:right;flex-shrink:0;max-width:54mm}
+  .where .b{display:inline-block;background:var(--navy);color:var(--gold);font-size:12px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:3px;white-space:nowrap}
+  .where .b.walk{background:#fff;color:var(--navy);border:1.5px solid var(--navy)}
+  .where .d{font-size:12px;color:var(--muted);margin-top:5px;font-weight:600}
+  .where .t{font-size:11px;color:var(--faint);margin-top:1px}
+  .pmeta{display:flex;gap:20px;flex-wrap:wrap;padding-top:8px;font-size:11px;color:var(--muted)}
+  .pmeta b{color:var(--ink);font-weight:600}
+  .page h2{font-size:9.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin:14px 0 6px}
+  .pcts{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}
+  .pct{border-left:2.5px solid var(--gold);padding:1px 0 1px 9px}
+  .pct .n{font-size:13px;font-weight:600;line-height:1.3}
+  .pct .e{font-size:10.5px;color:var(--muted);word-break:break-all;line-height:1.45}
+  .pct .p{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .pct.blank{border-left-color:var(--line)}
+  .pct.blank .n{color:var(--faint);font-weight:400;font-style:italic;font-size:12px}
+  .pbox{border:1px solid var(--line);border-radius:2px;padding:7px 10px;min-height:14mm}
+  .pbox .txt{font-size:12px;line-height:1.5;white-space:pre-wrap}
+  .pbox .ph{color:var(--faint);font-size:11.5px;font-style:italic}
+  .pnotes{flex:1;display:flex;flex-direction:column;margin-top:12px}
+  .ruled{flex:1;min-height:70mm;background-image:repeating-linear-gradient(to bottom, var(--rule) 0, var(--rule) 1px, transparent 1px, transparent 8.5mm)}
+  .tick{display:flex;gap:15px;flex-wrap:wrap;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);font-size:10.5px;color:var(--muted)}
+  .tick span{display:inline-flex;align-items:center;gap:6px}
+  .tick i{display:inline-block;width:11px;height:11px;border:1.3px solid var(--muted);border-radius:1.5px}
+  .pfoot{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px;font-size:9px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase}
+
+  @page{ size:A4; margin:12mm; }
+  @media print{
+    body{background:#fff}
+    .bar,.work,.toast,.banner,.tally,.setup{display:none !important}
+    .wrap{max-width:none;margin:0;padding:0}
+    .book{max-width:none}
+    .page{border:0;border-radius:0;box-shadow:none;margin:0;padding:0;min-height:auto;break-after:page;page-break-after:always}
+    .page:last-child{break-after:auto;page-break-after:auto}
+    .pnotes{min-height:0}
+    .ruled{min-height:72mm}
+    .phead h1{font-size:23px}
+    .where .b{background:#0D1F3C !important;color:#fff !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .where .b.walk{background:#fff !important;color:#0D1F3C !important}
+    .pct{border-left-color:#0D1F3C}
+  }
+</style>
+</head>
+<body>
+
+<div class="bar" id="bar">
+  <div class="brow">
+    <div class="ttl">Meetings<small id="sub">loading…</small></div>
+    <div class="seg">
+      <button id="v_work" aria-pressed="true">Work</button>
+      <button id="v_book" aria-pressed="false">Print book</button>
+    </div>
+    <select id="f_when"></select>
+    <select id="f_owner"></select>
+    <select id="f_type"></select>
+    <input id="f_q" type="search" placeholder="Search">
+    <button class="add" id="addbtn">+ Meeting</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div id="setup" class="setup hidden">
+    <h2>One-time setup</h2>
+    <p>This page reads the Enquiry CRM directly. Paste its <b>anon</b> key — the public one already in the CRM's own JavaScript bundle, not the service key. It is stored in this browser only.</p>
+    <input id="s_url" placeholder="https://xxxx.supabase.co">
+    <input id="s_key" placeholder="eyJhbGciOi…" autocapitalize="off" autocorrect="off">
+    <button class="save" id="s_go">Connect</button>
+  </div>
+
+  <div id="err" class="banner bad hidden"></div>
+  <div id="tally" class="tally hidden"></div>
+  <div id="work" class="work"></div>
+  <div id="book" class="book hidden"></div>
+</div>
+
+<script>
+/* ────────────────────────────────────────────────────────────────────────────
+   Meetings — the book, generalised.
+
+   Lives in the Enquiry CRM so a meeting can see the customer it is with.
+   Link a meeting to a customer and their enquiry history fills the page: what
+   they have asked for, when, and at what stage. That is the difference between
+   walking into a stand knowing them and walking in cold.
+
+   Linking is deliberately a human decision for anything but an exact match.
+   A wrong link silently attributes one company's enquiry history to another,
+   which is worse than no link at all — so partial matches are SUGGESTED and
+   wait for someone to confirm.
+
+   Two views over the same rows, so paper and screen cannot disagree.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+const DEFAULT_URL = 'https://eytoryygkxjslfvsqanl.supabase.co';   // Enquiry CRM
+
+const TYPES  = ['trade show','office visit','customer visit','call','video','other'];
+const OWNERS = ['Deepak','Sidd','Param','Ayushi','Shruti','Jaideep'];
+
+const $ = (id) => document.getElementById(id);
+const esc = (v) => v == null ? '' : String(v);
+
+const CFG = 'izmeet.cfg';
+function cfg() {
+  let c = {};
+  try { c = JSON.parse(localStorage.getItem(CFG) || '{}'); } catch (e) {}
+  return { url: c.url || DEFAULT_URL, key: c.key || '', rep: c.rep || '' };
+}
+function setCfg(c) { try { localStorage.setItem(CFG, JSON.stringify(c)); } catch (e) {} }
+
+let rows = [];
+let view = 'work';
+let only = '';                 // '', 'linked', 'suggest', 'new'
+const open = new Set();
+const hist = new Map();        // customer_id -> { enquiries, last, stage, products[] }
+
+/* ── plumbing ─────────────────────────────────────────────────────────── */
+async function api(path, init) {
+  const c = cfg();
+  const res = await fetch(c.url + '/rest/v1/' + path, {
+    ...(init || {}),
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: c.key, Authorization: 'Bearer ' + c.key,
+      ...((init && init.headers) || {}),
+    },
+  });
+  if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 180));
+  return res.status === 204 ? null : res.json();
+}
+function toast(m, ms = 2000) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const d = document.createElement('div'); d.className = 'toast'; d.textContent = m;
+  document.body.appendChild(d); setTimeout(() => d.remove(), ms);
+}
+function fail(m) { console.error(m); $('err').textContent = m; $('err').classList.remove('hidden'); }
+function clearErr() { $('err').classList.add('hidden'); }
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+const opts = (list, val, blank) =>
+  (blank ? `<option value="">${blank}</option>` : '')
+  + list.map(o => `<option${String(o) === String(val || '') ? ' selected' : ''}>${esc(o)}</option>`).join('');
+
+const DAY = (d) => {
+  if (!d) return 'No date yet';
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, { weekday:'short', day:'numeric', month:'short' });
+};
+
+/* ── setup ────────────────────────────────────────────────────────────── */
+function needSetup() {
+  $('setup').classList.remove('hidden');
+  $('bar').classList.add('hidden');
+  $('s_url').value = cfg().url;
+  $('s_key').value = cfg().key;
+}
+$('s_go').onclick = () => {
+  const url = $('s_url').value.trim().replace(/\/+$/, '');
+  const key = $('s_key').value.trim();
+  if (!url || !key) return toast('Both fields are needed');
+  setCfg({ ...cfg(), url, key });
+  $('setup').classList.add('hidden');
+  $('bar').classList.remove('hidden');
+  load();
+};
+
+/* ── load ─────────────────────────────────────────────────────────────── */
+async function load() {
+  clearErr();
+  try {
+    rows = await api('meetings?select=*&order=meet_on.asc.nullslast,sort_order.asc') || [];
+    rows.forEach(r => { if (!Array.isArray(r.contacts)) r.contacts = []; });
+    fillFilters();
+    drawTally();
+    render();
+    loadHistory();
+  } catch (e) {
+    if (/401|403|JWT|apikey/i.test(e.message)) { needSetup(); return; }
+    fail('Could not load: ' + e.message + '  —  if this is a 404, run meetings-seed.sql first.');
+  }
+}
+
+/* Enquiry history for every linked customer, in two requests rather than one
+   per card — 54 cards would otherwise be 108 round trips. */
+async function loadHistory() {
+  const ids = [...new Set(rows.map(r => r.customer_id).filter(Boolean))];
+  if (!ids.length) return;
+  try {
+    const es = await api('enquiries?select=id,customer_id,enquiry_date,stage'
+      + '&customer_id=in.(' + ids.join(',') + ')&order=enquiry_date.desc&limit=2000') || [];
+    if (!es.length) return;
+
+    const byCust = new Map();
+    const enqCust = new Map();
+    for (const e of es) {
+      enqCust.set(e.id, e.customer_id);
+      const h = byCust.get(e.customer_id) || { enquiries: 0, last: null, stages: new Set(), products: new Set() };
+      h.enquiries++;
+      if (e.enquiry_date && (!h.last || e.enquiry_date > h.last)) h.last = e.enquiry_date;
+      if (e.stage) h.stages.add(e.stage);
+      byCust.set(e.customer_id, h);
+    }
+
+    // Product names come from the view, which is the authoritative place for
+    // them — the jsonb on `enquiries` has changed shape over time.
+    const eids = es.map(e => e.id).slice(0, 1200);
+    const ps = await api('enquiry_products_v?select=enquiry_id,product_name'
+      + '&enquiry_id=in.(' + eids.join(',') + ')&limit=6000') || [];
+    for (const p of ps) {
+      const cid = enqCust.get(p.enquiry_id);
+      const h = cid && byCust.get(cid);
+      if (h && p.product_name) h.products.add(String(p.product_name).trim());
+    }
+
+    hist.clear();
+    for (const [cid, h] of byCust) {
+      hist.set(cid, { enquiries: h.enquiries, last: h.last,
+                      stages: [...h.stages], products: [...h.products].sort() });
+    }
+    render();
+  } catch (e) {
+    console.warn('history:', e.message);
+  }
+}
+
+/* ── filters ──────────────────────────────────────────────────────────── */
+function fillFilters() {
+  const keep = (el2) => el2.value;
+  const w0 = keep($('f_when')), o0 = keep($('f_owner')), t0 = keep($('f_type'));
+  const days = [...new Set(rows.map(r => r.meet_on).filter(Boolean))].sort();
+  const owners = [...new Set(rows.map(r => r.owner).filter(Boolean))].sort();
+  const types = [...new Set(rows.map(r => r.meeting_type).filter(Boolean))].sort();
+  $('f_when').innerHTML = '<option value="">All dates</option>'
+    + days.map(d => `<option value="${esc(d)}">${DAY(d)}</option>`).join('')
+    + '<option value="__none">No date yet</option>';
+  $('f_owner').innerHTML = '<option value="">Everyone</option>'
+    + owners.map(o => `<option>${esc(o)}</option>`).join('')
+    + '<option value="__none">Unassigned</option>';
+  $('f_type').innerHTML = '<option value="">All types</option>'
+    + types.map(t => `<option>${esc(t)}</option>`).join('');
+  $('f_when').value = w0; $('f_owner').value = o0; $('f_type').value = t0;
+}
+
+const linkState = (r) =>
+  r.customer_id ? 'linked' : (r.suggest_id ? 'suggest' : 'new');
+
+function visible() {
+  const w = $('f_when').value, o = $('f_owner').value, t = $('f_type').value;
+  const q = $('f_q').value.trim().toLowerCase();
+  // Sorted here, not trusted from the server: changing a date in the form has
+  // to move the card, or the day headings repeat down the page.
+  return rows.filter(r => {
+    if (w === '__none' ? !!r.meet_on : (w && r.meet_on !== w)) return false;
+    if (o === '__none' ? !!r.owner : (o && r.owner !== o)) return false;
+    if (t && r.meeting_type !== t) return false;
+    if (only && linkState(r) !== only) return false;
+    if (q) {
+      const hay = [r.company, r.products, r.objective, r.booth, r.event, r.suggest_name,
+                   ...(r.contacts || []).map(c => c.name + ' ' + c.email)].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    // Dated meetings first in date order, undated at the end.
+    if (!!a.meet_on !== !!b.meet_on) return a.meet_on ? -1 : 1;
+    if (a.meet_on && a.meet_on !== b.meet_on) return a.meet_on < b.meet_on ? -1 : 1;
+    return (a.sort_order || 0) - (b.sort_order || 0) || a.company.localeCompare(b.company);
+  });
+}
+
+function drawTally() {
+  const host = $('tally');
+  host.classList.remove('hidden');
+  const n = (s) => rows.filter(r => linkState(r) === s).length;
+  const defs = [
+    ['', 'All', rows.length],
+    ['linked', 'Linked to a customer', n('linked')],
+    ['suggest', 'Needs confirming', n('suggest')],
+    ['new', 'New customer', n('new')],
+  ];
+  host.textContent = '';
+  for (const [key, label, count] of defs) {
+    const b = el('button', 'pill');
+    b.innerHTML = esc(label) + ' <b>' + count + '</b>';
+    b.setAttribute('aria-pressed', String(only === key));
+    b.onclick = () => { only = key; drawTally(); render(); };
+    host.append(b);
+  }
+}
+
+/* ── customer search ──────────────────────────────────────────────────── */
+let searchT = 0;
+async function searchCustomers(term) {
+  const t = term.trim();
+  if (t.length < 2) return [];
+  const enc = encodeURIComponent('%' + t + '%');
+  return await api('customers?select=id,company,country,email&company=ilike.' + enc
+    + '&order=company.asc&limit=12') || [];
+}
+
+/* ── one card ─────────────────────────────────────────────────────────── */
+function whereChip(r) {
+  if (r.booth) return { cls: 'booth', text: 'BOOTH ' + esc(r.booth).replace(/^#/, '') };
+  if (r.venue) return { cls: 'walk', text: esc(r.venue).toUpperCase() };
+  return { cls: 'none', text: esc(r.meeting_type || 'not set').toUpperCase() };
+}
+
+function cardFor(r) {
+  const card = el('div', 'card' + (open.has(r.id) ? ' open' : ''));
+  const w = whereChip(r);
+  const st = linkState(r);
+  const h = r.customer_id ? hist.get(r.customer_id) : null;
+
+  const head = el('div', 'row');
+  head.innerHTML = `
+    <span class="dot ${esc(r.status || 'planned')}"></span>
+    <div class="co">${esc(r.company)}
+      <em>${h ? h.enquiries + ' enquiries · last ' + esc(h.last || '—')
+             : ((r.contacts || []).map(c => esc(c.name)).filter(Boolean).join(', ') || 'No contact yet')}</em></div>
+    <span class="chip ${st === 'linked' ? 'linked' : st === 'suggest' ? 'sugg' : 'newc'}">${
+      st === 'linked' ? 'LINKED' : st === 'suggest' ? 'CONFIRM' : 'NEW'}</span>
+    <span class="chip ${w.cls}">${w.text}</span>
+    ${r.meet_on ? `<span class="chip who">${DAY(r.meet_on)}</span>` : ''}
+    <span class="chip who">${esc(r.owner) || '—'}</span>`;
+  head.onclick = () => { open.has(r.id) ? open.delete(r.id) : open.add(r.id); render(); };
+  card.append(head);
+
+  const form = el('div', 'form');
+  form.innerHTML = `
+    <div class="grid">
+      <div class="f"><label>Company</label><input data-k="company" value="${esc(r.company)}"></div>
+      <div class="f"><label>Owner</label><select data-k="owner">${opts(OWNERS, r.owner, 'Unassigned')}</select></div>
+      <div class="f"><label>Meeting type</label><select data-k="meeting_type">${opts(TYPES, r.meeting_type)}</select></div>
+      <div class="f"><label>Event</label><input data-k="event" value="${esc(r.event)}" placeholder="SupplySide West 2026"></div>
+    </div>
+    <div class="grid">
+      <div class="f"><label>Where</label><input data-k="venue" value="${esc(r.venue)}" placeholder="Floor walk / their office"></div>
+      <div class="f"><label>Booth</label><input data-k="booth" value="${esc(r.booth)}" placeholder="2312"></div>
+      <div class="f"><label>Date</label><input data-k="meet_on" type="date" value="${esc(r.meet_on)}"></div>
+      <div class="f"><label>Time</label><input data-k="meet_time" value="${esc(r.meet_time)}" placeholder="10:30 am"></div>
+    </div>
+
+    <label style="margin-top:4px">Who we are meeting</label>
+    <div class="cts" data-cts></div>
+    <button type="button" class="mini" data-addct>+ Add contact</button>
+
+    <div data-link></div>
+
+    <div class="f" style="margin-top:14px">
+      <label>Products in discussion</label>
+      <textarea data-k="products" placeholder="What we actually want to talk about">${esc(r.products)}</textarea>
+    </div>
+    <div class="f">
+      <label>What we want from this meeting</label>
+      <textarea data-k="objective" placeholder="Sample pricing, confirm MOQ, meet their QA">${esc(r.objective)}</textarea>
+    </div>
+    <div class="f">
+      <label>Notes</label>
+      <textarea data-k="notes" placeholder="Typed up after the meeting">${esc(r.notes)}</textarea>
+    </div>
+    <div class="f" style="max-width:200px">
+      <label>Status</label>
+      <select data-k="status">${opts(['planned','met','skipped'], r.status || 'planned')}</select>
+    </div>
+
+    <div class="acts">
+      <button class="save" data-save>Save</button>
+      <button class="ghost" data-close>Close</button>
+      <span class="said hidden" data-ok>Saved</span>
+      <button class="del" data-del>Delete</button>
+    </div>`;
+
+  /* contacts */
+  const ctHost = form.querySelector('[data-cts]');
+  const drawCts = () => {
+    ctHost.textContent = '';
+    if (!r.contacts.length) r.contacts = [{ name:'', email:'', phone:'' }];
+    r.contacts.forEach((c, i) => {
+      const row = el('div', 'ct');
+      row.innerHTML = `
+        <input value="${esc(c.name)}"  placeholder="Name"  data-c="name">
+        <input value="${esc(c.email)}" placeholder="Email" data-c="email" autocapitalize="off">
+        <input value="${esc(c.phone)}" placeholder="Phone" data-c="phone">
+        <button type="button" title="Remove">&times;</button>`;
+      row.querySelectorAll('input').forEach(inp => { inp.oninput = () => { c[inp.dataset.c] = inp.value; }; });
+      row.querySelector('button').onclick = () => { r.contacts.splice(i, 1); drawCts(); };
+      ctHost.append(row);
+    });
+  };
+  drawCts();
+  form.querySelector('[data-addct]').onclick = () => { r.contacts.push({ name:'', email:'', phone:'' }); drawCts(); };
+
+  /* ── the link panel ── */
+  const linkHost = form.querySelector('[data-link]');
+  const drawLink = () => {
+    linkHost.textContent = '';
+    const box = el('div', 'link' + (r.customer_id ? ' on' : (r.suggest_id ? ' sug' : '')));
+
+    if (r.customer_id) {
+      const hh = hist.get(r.customer_id);
+      box.innerHTML = `
+        <h4>Linked to ${esc(r.customer_name_cache || ('customer #' + r.customer_id))}</h4>
+        <p>${hh ? hh.enquiries + ' enquiries, last on ' + esc(hh.last || '—')
+                 + (hh.stages.length ? ' · ' + hh.stages.join(', ') : '')
+                : 'No enquiries found for this customer.'}</p>
+        <div class="acts2">
+          ${hh && hh.products.length ? '<button data-copy class="pri">Use these products</button>' : ''}
+          <button data-unlink>Unlink</button>
+        </div>`;
+      if (hh && hh.products.length) {
+        const hb = el('div', 'hist');
+        hb.innerHTML = `<div class="sum"><b>${hh.products.length}</b> products enquired</div>
+          <div class="prods">${hh.products.slice(0, 60).map(p => `<span>${esc(p)}</span>`).join('')}</div>`;
+        box.append(hb);
+      }
+      box.querySelector('[data-unlink]').onclick = () => {
+        r.customer_id = null; r.customer_name_cache = null; drawLink();
+      };
+      const cp = box.querySelector('[data-copy]');
+      if (cp) cp.onclick = () => {
+        const ta = form.querySelector('[data-k="products"]');
+        ta.value = (hist.get(r.customer_id).products || []).join(', ');
+        toast('Copied — remember to Save');
+      };
+
+    } else if (r.suggest_id) {
+      box.innerHTML = `
+        <h4>Looks like ${esc(r.suggest_name)}</h4>
+        <p>Matched on name only, so it needs a person to say yes. Linking the wrong
+           customer would attach someone else's enquiry history to this meeting.</p>
+        <div class="acts2">
+          <button class="pri" data-yes>Yes, link it</button>
+          <button data-no>Not them</button>
+        </div>
+        <div class="srch" data-srch></div>`;
+      box.querySelector('[data-yes]').onclick = () => {
+        r.customer_id = r.suggest_id; r.customer_name_cache = r.suggest_name;
+        r.suggest_id = null; r.suggest_name = null; r.is_new_customer = false;
+        drawLink(); loadHistory();
+      };
+      box.querySelector('[data-no]').onclick = () => {
+        r.suggest_id = null; r.suggest_name = null; drawLink();
+      };
+      wireSearch(box.querySelector('[data-srch]'));
+
+    } else {
+      box.innerHTML = `
+        <h4>${r.is_new_customer ? 'New customer' : 'Not linked to a customer'}</h4>
+        <p>Search for them if they are already in the CRM under another name.</p>
+        <div class="srch" data-srch></div>
+        <div class="acts2">
+          <button data-newc${r.is_new_customer ? ' class="pri"' : ''}>${
+            r.is_new_customer ? 'Marked as new' : 'Mark as new customer'}</button>
+        </div>`;
+      box.querySelector('[data-newc]').onclick = () => {
+        r.is_new_customer = !r.is_new_customer; drawLink();
+      };
+      wireSearch(box.querySelector('[data-srch]'));
+    }
+    linkHost.append(box);
+  };
+
+  function wireSearch(host) {
+    host.innerHTML = '<input placeholder="Search customers — try part of the name">';
+    const inp = host.querySelector('input');
+    inp.style.cssText = 'width:100%;border:1px solid #CCD5E3;border-radius:8px;padding:9px 10px;font-size:14px;font-family:inherit';
+    let resBox = null;
+    const close = () => { if (resBox) { resBox.remove(); resBox = null; } };
+    inp.oninput = () => {
+      clearTimeout(searchT);
+      searchT = setTimeout(async () => {
+        close();
+        let hits = [];
+        try { hits = await searchCustomers(inp.value); } catch (e) { fail('Search: ' + e.message); return; }
+        if (!hits.length) return;
+        resBox = el('div', 'res');
+        for (const c of hits) {
+          const d = el('div');
+          d.innerHTML = esc(c.company) + '<span>' + [esc(c.country), esc(c.email)].filter(Boolean).join(' · ') + '</span>';
+          d.onclick = () => {
+            r.customer_id = c.id; r.customer_name_cache = c.company;
+            r.suggest_id = null; r.suggest_name = null; r.is_new_customer = false;
+            close(); drawLink(); loadHistory();
+          };
+          resBox.append(d);
+        }
+        host.append(resBox);
+      }, 220);
+    };
+    inp.onblur = () => setTimeout(close, 180);
+  }
+  drawLink();
+
+  form.querySelector('[data-close]').onclick = () => { open.delete(r.id); render(); };
+
+  form.querySelector('[data-save]').onclick = async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const patch = { updated_at: new Date().toISOString() };
+    form.querySelectorAll('[data-k]').forEach(f => { patch[f.dataset.k] = f.value.trim() || null; });
+    patch.contacts = r.contacts.filter(c => (c.name || c.email || c.phone));
+    patch.customer_id = r.customer_id || null;
+    patch.suggest_id = r.suggest_id || null;
+    patch.suggest_name = r.suggest_name || null;
+    patch.is_new_customer = !!r.is_new_customer;
+    patch.status = patch.status || 'planned';
+    patch.company = patch.company || r.company;
+    try {
+      clearErr();
+      await api('meetings?id=eq.' + r.id, {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(patch),
+      });
+      Object.assign(r, patch);
+      const ok = form.querySelector('[data-ok]');
+      ok.classList.remove('hidden'); setTimeout(() => ok.classList.add('hidden'), 1500);
+      fillFilters(); drawTally(); render();
+      toast(r.company + ' saved');
+    } catch (e) {
+      fail('Could not save: ' + e.message);
+    } finally { btn.disabled = false; btn.textContent = 'Save'; }
+  };
+
+  form.querySelector('[data-del]').onclick = async (ev) => {
+    const b = ev.currentTarget;
+    if (b.dataset.armed !== '1') {
+      b.dataset.armed = '1'; b.textContent = 'Tap again to delete';
+      setTimeout(() => { b.dataset.armed = '0'; b.textContent = 'Delete'; }, 4000);
+      return;
+    }
+    try {
+      await api('meetings?id=eq.' + r.id, { method:'DELETE', headers:{ Prefer:'return=minimal' } });
+      rows = rows.filter(x => x.id !== r.id); open.delete(r.id);
+      drawTally(); render(); toast('Deleted');
+    } catch (e) { fail('Could not delete: ' + e.message); }
+  };
+
+  card.append(form);
+  return card;
+}
+
+function renderWork() {
+  const host = $('work');
+  host.textContent = '';
+  const list = visible();
+  $('sub').textContent = list.length === rows.length ? rows.length + ' meetings' : list.length + ' of ' + rows.length;
+  if (!list.length) { host.append(el('div','note', rows.length ? 'Nothing matches.' : 'No meetings yet.')); return; }
+  let day = null;
+  for (const r of list) {
+    const d = DAY(r.meet_on);
+    if (d !== day) { day = d; host.append(el('div', 'day', day + (r.event ? ' · ' + r.event : ''))); }
+    host.append(cardFor(r));
+  }
+}
+
+/* ── print book ───────────────────────────────────────────────────────── */
+function pageFor(r, n, total) {
+  const page = el('article', 'page');
+  const w = whereChip(r);
+  const h = r.customer_id ? hist.get(r.customer_id) : null;
+  const cs = (r.contacts || []).filter(c => c.name || c.email || c.phone);
+  const cts = cs.length
+    ? cs.map(c => `<div class="pct"><div class="n">${esc(c.name) || '&nbsp;'}</div>
+        ${c.email ? `<div class="e">${esc(c.email)}</div>` : ''}
+        ${c.phone ? `<div class="p">${esc(c.phone)}</div>` : ''}</div>`).join('')
+    : `<div class="pct blank"><div class="n">Name</div><div class="e">&nbsp;</div></div>
+       <div class="pct blank"><div class="n">Email / phone</div><div class="e">&nbsp;</div></div>`;
+
+  page.innerHTML = `
+    <div class="phead">
+      <h1>${esc(r.company)}</h1>
+      <div class="where">
+        <span class="b ${w.cls === 'booth' ? '' : 'walk'}">${w.text}</span>
+        <div class="d">${r.meet_on ? DAY(r.meet_on) : '&nbsp;'}</div>
+        ${r.meet_time ? `<div class="t">${esc(r.meet_time)}</div>` : ''}
+      </div>
+    </div>
+    <div class="pmeta">
+      <span>Owner <b>${esc(r.owner) || '—'}</b></span>
+      ${r.event ? `<span>${esc(r.event)}</span>` : ''}
+      ${h ? `<span><b>${h.enquiries}</b> enquiries · last ${esc(h.last || '—')}</span>`
+          : (r.is_new_customer ? '<span><b>New customer</b></span>' : '')}
+    </div>
+    <h2>Who we are meeting</h2>
+    <div class="pcts">${cts}</div>
+    <h2>Products in discussion</h2>
+    <div class="pbox">${r.products ? `<div class="txt">${esc(r.products)}</div>`
+      : (h && h.products.length ? `<div class="txt">${esc(h.products.slice(0, 30).join(', '))}</div>`
+      : '<div class="ph">To be filled in before the meeting</div>')}</div>
+    ${r.objective ? `<h2>What we want from this</h2><div class="pbox"><div class="txt">${esc(r.objective)}</div></div>` : ''}
+    <div class="pnotes">
+      <h2>Notes from the meeting</h2>
+      <div class="ruled"></div>
+    </div>
+    <div class="tick">
+      <span><i></i> Sample requested</span>
+      <span><i></i> Quote to send</span>
+      <span><i></i> Follow up</span>
+      <span><i></i> Not a fit</span>
+      <span style="margin-left:auto">Next step by ________________</span>
+    </div>
+    <div class="pfoot">
+      <span>${esc(r.event) || esc(r.meeting_type)} · Ingredientz</span>
+      <span>${n} / ${total}</span>
+    </div>`;
+  return page;
+}
+
+function renderBook() {
+  const host = $('book');
+  host.textContent = '';
+  const list = visible();
+  $('sub').textContent = list.length + (list.length === 1 ? ' page' : ' pages') + ' · Cmd+P to print';
+  if (!list.length) { host.append(el('div','note','Nothing matches.')); return; }
+  list.forEach((r, i) => host.append(pageFor(r, i + 1, list.length)));
+}
+
+function render() { view === 'work' ? renderWork() : renderBook(); }
+
+/* ── add ──────────────────────────────────────────────────────────────── */
+$('addbtn').onclick = async () => {
+  const name = (prompt('Company name') || '').trim();
+  if (!name) return;
+  try {
+    clearErr();
+    const made = await api('meetings', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        company: name, owner: cfg().rep || null, meeting_type: 'office visit',
+        status: 'planned', contacts: [], is_new_customer: true,
+        sort_order: (rows.reduce((m, r) => Math.max(m, r.sort_order || 0), 0) || 0) + 10,
+      }),
+    });
+    const row = Array.isArray(made) ? made[0] : made;
+    row.contacts = [];
+    rows.push(row);
+    open.clear(); open.add(row.id);
+    only = ''; $('f_when').value = ''; $('f_owner').value = ''; $('f_type').value = ''; $('f_q').value = '';
+    if (view !== 'work') setView('work');
+    fillFilters(); drawTally(); render();
+    document.querySelector('.card.open')?.scrollIntoView({ behavior:'smooth', block:'center' });
+  } catch (e) { fail('Could not add: ' + e.message); }
+};
+
+/* ── chrome ───────────────────────────────────────────────────────────── */
+function setView(v) {
+  view = v;
+  $('v_work').setAttribute('aria-pressed', String(v === 'work'));
+  $('v_book').setAttribute('aria-pressed', String(v === 'book'));
+  $('work').classList.toggle('hidden', v !== 'work');
+  $('book').classList.toggle('hidden', v !== 'book');
+  $('tally').classList.toggle('hidden', v !== 'work');
+  render();
+}
+$('v_work').onclick = () => setView('work');
+$('v_book').onclick = () => setView('book');
+$('f_when').onchange = render;
+$('f_owner').onchange = render;
+$('f_type').onchange = render;
+let qt = 0;
+$('f_q').oninput = () => { clearTimeout(qt); qt = setTimeout(render, 150); };
+
+if (!cfg().key) needSetup(); else load();
+</script>
+</body>
+</html>
