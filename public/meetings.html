@@ -186,6 +186,7 @@
     <select id="f_owner"></select>
     <select id="f_type"></select>
     <input id="f_q" type="search" placeholder="Search">
+    <button class="add hidden" id="pdf">Download PDF</button>
     <button class="add" id="addbtn">+ Meeting</button>
   </div>
 </div>
@@ -223,6 +224,9 @@
    ──────────────────────────────────────────────────────────────────────────── */
 
 const DEFAULT_URL = 'https://eytoryygkxjslfvsqanl.supabase.co';   // Enquiry CRM
+// Captured once. Restoring from document.title would drift if someone
+// clicks Download twice before the first restore fires.
+const PAGE_TITLE = document.title;
 
 const TYPES  = ['trade show','office visit','customer visit','call','video','other'];
 const OWNERS = ['Deepak','Sidd','Param','Ayushi','Shruti','Jaideep'];
@@ -885,10 +889,33 @@ function setView(v) {
   $('v_work').setAttribute('aria-pressed', String(v === 'work'));
   $('v_book').setAttribute('aria-pressed', String(v === 'book'));
   $('work').classList.toggle('hidden', v !== 'work');
+  $('pdf').classList.toggle('hidden', v !== 'book');
+  $('addbtn').classList.toggle('hidden', v !== 'work');
   $('book').classList.toggle('hidden', v !== 'book');
   $('tally').classList.toggle('hidden', v !== 'work');
   render();
 }
+/* A browser cannot hand you a file without the print dialog, and that is
+   fine: "Save as PDF" in that dialog keeps the text selectable, uses the page
+   breaks already in the CSS, and weighs a fraction of what a rasterising
+   JS library would produce for 82 pages. All we add is a sensible filename,
+   since browsers take it from the document title. */
+$('pdf').onclick = () => {
+  const list = visible();
+  const bits = ['Meetings'];
+  const ev = [...new Set(list.map(r => r.event).filter(Boolean))];
+  if (ev.length === 1) bits[0] = ev[0];
+  if ($('f_owner').value && $('f_owner').value !== '__none') bits.push($('f_owner').value);
+  if ($('f_when').value && $('f_when').value !== '__none') bits.push(DAY($('f_when').value));
+  bits.push(list.length + (list.length === 1 ? ' page' : ' pages'));
+
+
+  document.title = bits.join(' · ').replace(/[\/:*?"<>|]/g, '-');
+  toast('Choose "Save as PDF" as the destination', 3200);
+  window.print();
+  setTimeout(() => { document.title = PAGE_TITLE; }, 1500);
+};
+
 $('v_work').onclick = () => setView('work');
 $('v_book').onclick = () => setView('book');
 $('f_when').onchange = render;
