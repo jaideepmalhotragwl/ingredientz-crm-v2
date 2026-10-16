@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#3975EA">
 <title>Ingredientz · Meetings</title>
+<script src="crm-config.js" onerror="window.IZ_CRM=window.IZ_CRM||null"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Inter:wght@400;500;600;700&display=swap">
@@ -194,7 +195,7 @@
 <div class="wrap">
   <div id="setup" class="setup hidden">
     <h2>One-time setup</h2>
-    <p>This page reads the Enquiry CRM directly. Paste its <b>anon</b> key — the public one already in the CRM's own JavaScript bundle, not the service key. It is stored in this browser only.</p>
+    <p>This page reads the Enquiry CRM directly. Paste its <b>anon</b> key — the public one already in the CRM's own JavaScript bundle, not the service key. It is stored in this browser only — so a new browser or a private window asks again. To stop that for everyone, put a <b>crm-config.js</b> next to this page on the server.</p>
     <input id="s_url" placeholder="https://xxxx.supabase.co">
     <input id="s_key" placeholder="eyJhbGciOi…" autocapitalize="off" autocorrect="off">
     <button class="save" id="s_go">Connect</button>
@@ -235,10 +236,22 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => v == null ? '' : String(v);
 
 const CFG = 'izmeet.cfg';
+
+/* Where the connection details come from, in order:
+     1. window.IZ_CRM, set by crm-config.js sitting next to this page
+     2. whatever was typed into the setup panel on this browser
+     3. the baked-in default URL, with no key
+   Option 1 is the one that stops everybody being asked: the key lives in one
+   small file on the server, so a new phone or a private window just works. */
 function cfg() {
   let c = {};
   try { c = JSON.parse(localStorage.getItem(CFG) || '{}'); } catch (e) {}
-  return { url: c.url || DEFAULT_URL, key: c.key || '', rep: c.rep || '' };
+  const srv = (typeof window !== 'undefined' && window.IZ_CRM) || {};
+  return {
+    url: srv.url || c.url || DEFAULT_URL,
+    key: srv.key || c.key || '',
+    rep: c.rep || '',
+  };
 }
 function setCfg(c) { try { localStorage.setItem(CFG, JSON.stringify(c)); } catch (e) {} }
 
@@ -267,7 +280,16 @@ function toast(m, ms = 2000) {
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = m;
   document.body.appendChild(d); setTimeout(() => d.remove(), ms);
 }
-function fail(m) { console.error(m); $('err').textContent = m; $('err').classList.remove('hidden'); }
+function fail(m) {
+  console.error(m);
+  const box = $('err');
+  box.textContent = m;
+  box.classList.remove('hidden');
+  // The banner is at the top of the page; scrolled down a list of 82 you would
+  // never see it, which is how a failing save looks like a silent one.
+  toast(m.length > 90 ? m.slice(0, 90) + '…' : m, 6000);
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 function clearErr() { $('err').classList.add('hidden'); }
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -356,7 +378,9 @@ async function loadHistory() {
                       products: [...h.products].sort(), contacts: [] });
     }
     await loadContacts(ids);
-    render();
+    // Still never redraw over an open card: the form holds typed-but-unsaved
+    // text that lives only in the DOM, and rebuilding it throws that away.
+    if (!open.size) render();
   } catch (e) {
     console.warn('history:', e.message);
   }
@@ -443,6 +467,10 @@ function visible() {
   // Sorted here, not trusted from the server: changing a date in the form has
   // to move the card, or the day headings repeat down the page.
   return rows.filter(r => {
+    // A card you have open always stays on screen. Confirming a suggestion
+    // changes the row's link state, and without this the card disappears from
+    // under you the instant you pick a customer — before you can press Save.
+    if (open.has(r.id)) return true;
     if (w === '__none' ? !!r.meet_on : (w && r.meet_on !== w)) return false;
     if (o === '__none' ? !!r.owner : (o && r.owner !== o)) return false;
     if (t && r.meeting_type !== t) return false;
